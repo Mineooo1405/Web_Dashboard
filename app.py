@@ -1,9 +1,3 @@
-"""
-Web Dashboard - FastAPI backend with WebSocket for real-time robot control.
-
-Standalone entry point. No dependency on the original server/ project.
-Run: python app.py
-"""
 import os
 import sys
 import json

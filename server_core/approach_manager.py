@@ -262,34 +262,44 @@ class ApproachManager:
             for point in trajectory:
                 point['t'] += server.execution_time_offset
         
-        # Send trajectories to robots
-        success_count = 0
-        for robot_id, trajectory in trajectories.items():
-            if robot_id not in server.robot_connections:
-                server.gui.update_monitor(f"Robot {robot_id} not connected - skipping")
-                continue
-            
-            # Set decentralized execution mode
-            server.decentralized_execution[robot_id] = True
-            
-            # Send trajectory (object info will be sent separately when all robots arrive)
-            meta = {
-                "phase": "approach"
-            }
-            
-            if server.send_trajectory_to_robot(robot_id, trajectory, meta):
-                # Small delay to ensure trajectory is received before execute command
-                time.sleep(0.01)  # 10ms delay
+        # User requested Mutex Lock to block sync_position during trajectory loading.
+        server.trajectory_sync_lock.acquire()
+        try:
+            # Send trajectories to robots
+            success_count = 0
+            for robot_id, trajectory in trajectories.items():
+                if robot_id not in server.robot_connections:
+                    server.gui.update_monitor(f"Robot {robot_id} not connected - skipping")
+                    continue
                 
-                # Send execute command with synchronized start time
-                exec_cmd = json.dumps({
-                    "type": "control", 
-                    "cmd": "execute_trajectory",
-                    "time": sync_start_time  # Synchronized start time for all robots
-                })
-                server.send_command_to_robot(robot_id, exec_cmd)
-                success_count += 1
-        
+                # Set decentralized execution mode
+                server.decentralized_execution[robot_id] = True
+                
+                # Send trajectory (object info will be sent separately when all robots arrive)
+                meta = {
+                    "phase": "approach"
+                }
+                
+                if server.send_trajectory_to_robot(robot_id, trajectory, meta):
+                    # Small delay to ensure trajectory is received before execute command
+                    time.sleep(0.01)  # 10ms delay
+                    
+                    # Send execute command with synchronized start time
+                    exec_cmd = json.dumps({
+                        "type": "control", 
+                        "cmd": "execute_trajectory",
+                        "time": sync_start_time  # Synchronized start time for all robots
+                    })
+                    server.send_command_to_robot(robot_id, exec_cmd)
+                    success_count += 1
+                    
+            # Keep the mutex engaged for an extra few seconds so the ESP32s can finish 
+            # parsing their large TCP buffers before sync_position starts interlacing them
+            time.sleep(3.0)
+            
+        finally:
+            server.trajectory_sync_lock.release()
+            
         if success_count > 0:
             server.gui.update_monitor(
                 f"Approach phase started for {success_count} robot(s)"

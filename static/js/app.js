@@ -94,25 +94,25 @@ function toggleMonitor() {
 function connectWS() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(`${proto}://${location.host}/ws`);
-    
+
     ws.onopen = () => {
         document.getElementById('ws-indicator').className = 'indicator on';
         document.getElementById('ws-text').textContent = 'Connected';
     };
-    
+
     ws.onclose = () => {
         document.getElementById('ws-indicator').className = 'indicator off';
         document.getElementById('ws-text').textContent = 'Disconnected';
         setTimeout(connectWS, 2000);
     };
-    
+
     ws.onerror = () => ws.close();
-    
+
     ws.onmessage = (evt) => {
         try {
             const msg = JSON.parse(evt.data);
             handleMessage(msg);
-        } catch(e) { console.error('WS parse error:', e); }
+        } catch (e) { console.error('WS parse error:', e); }
     };
 }
 
@@ -126,7 +126,7 @@ function sendAction(data) {
 // Message Handler
 // ============================================================
 function handleMessage(msg) {
-    switch(msg.type) {
+    switch (msg.type) {
         case 'monitor':
             appendMonitor(msg.message);
             break;
@@ -212,7 +212,7 @@ function handleVizFullState(state) {
 // Viz Updates
 // ============================================================
 function handleVizUpdate(method, args) {
-    switch(method) {
+    switch (method) {
         case 'update_position': {
             const [rid, x, y, theta] = args;
             vizState.positions[rid] = [x, y, theta];
@@ -306,14 +306,14 @@ function drawMap() {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const w = canvas.width, h = canvas.height;
-    
+
     // Theme-aware colors
     const gridColor = cssVar('--map-grid');
     const labelColor = cssVar('--map-label');
     const isDark = getTheme() === 'dark';
-    
+
     ctx.clearRect(0, 0, w, h);
-    
+
     // Grid
     ctx.strokeStyle = gridColor;
     ctx.lineWidth = 0.5;
@@ -326,7 +326,7 @@ function drawMap() {
         const [, py] = worldToCanvas(0, gy, canvas);
         ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(w, py); ctx.stroke();
     }
-    
+
     // Axes labels
     ctx.fillStyle = labelColor;
     ctx.font = '10px Inter, sans-serif';
@@ -338,7 +338,7 @@ function drawMap() {
         const [px, py] = worldToCanvas(0, gy, canvas);
         ctx.fillText(gy.toString(), px + 3, py - 3);
     }
-    
+
     // Obstacles
     const obsColor = isDark ? 'rgba(240,101,101,0.25)' : 'rgba(220,50,50,0.15)';
     const obsStroke = '#f06565';
@@ -360,7 +360,7 @@ function drawMap() {
             ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
         }
     }
-    
+
     // Object
     if (vizState.object) {
         const [ox, oy, ol, ow_] = vizState.object;
@@ -370,13 +370,13 @@ function drawMap() {
         ctx.fillStyle = isDark ? 'rgba(251,191,36,0.3)' : 'rgba(230,140,0,0.2)';
         ctx.strokeStyle = '#fbbf24';
         ctx.lineWidth = 2;
-        ctx.fillRect(cx - rw/2, cy - rh/2, rw, rh);
-        ctx.strokeRect(cx - rw/2, cy - rh/2, rw, rh);
+        ctx.fillRect(cx - rw / 2, cy - rh / 2, rw, rh);
+        ctx.strokeRect(cx - rw / 2, cy - rh / 2, rw, rh);
         ctx.fillStyle = '#fbbf24';
         ctx.font = '600 11px Inter, sans-serif';
-        ctx.fillText('Object', cx - 18, cy - rh/2 - 5);
+        ctx.fillText('Object', cx - 18, cy - rh / 2 - 5);
     }
-    
+
     // Grip positions
     for (const [rid, pos] of Object.entries(vizState.grip_positions)) {
         const [gx, gy] = worldToCanvas(pos[0], pos[1], canvas);
@@ -384,10 +384,10 @@ function drawMap() {
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         // Draw X marker
-        ctx.beginPath(); ctx.moveTo(gx-6, gy-6); ctx.lineTo(gx+6, gy+6); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(gx+6, gy-6); ctx.lineTo(gx-6, gy+6); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(gx - 6, gy - 6); ctx.lineTo(gx + 6, gy + 6); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(gx + 6, gy - 6); ctx.lineTo(gx - 6, gy + 6); ctx.stroke();
     }
-    
+
     // Destination
     if (vizState.destination) {
         const [dx, dy] = worldToCanvas(vizState.destination[0], vizState.destination[1], canvas);
@@ -397,7 +397,7 @@ function drawMap() {
         ctx.font = '600 11px Inter, sans-serif';
         ctx.fillText('DEST', dx + 10, dy + 4);
     }
-    
+
     // Formation circle
     if (vizState.formation_circle) {
         const [fcx, fcy, fr] = vizState.formation_circle;
@@ -409,7 +409,7 @@ function drawMap() {
         ctx.beginPath(); ctx.arc(cx, cy, fr * scale, 0, Math.PI * 2); ctx.stroke();
         ctx.setLineDash([]);
     }
-    
+
     // Centroid path
     if (vizState.centroid_path && vizState.centroid_path.length > 1) {
         ctx.strokeStyle = '#a855f7';
@@ -424,7 +424,7 @@ function drawMap() {
         ctx.stroke();
         ctx.setLineDash([]);
     }
-    
+
     // Ground truth paths
     for (const [rid, path] of Object.entries(vizState.ground_truth)) {
         if (!path || path.length < 2) continue;
@@ -440,7 +440,7 @@ function drawMap() {
         ctx.stroke();
         ctx.setLineDash([]);
     }
-    
+
     // Trajectory trails
     for (const [rid, pts] of Object.entries(vizState.trajectories)) {
         if (!pts || pts.length < 2) continue;
@@ -457,7 +457,7 @@ function drawMap() {
         ctx.stroke();
         ctx.globalAlpha = 1;
     }
-    
+
     // Robots
     for (const [rid, pos] of Object.entries(vizState.positions)) {
         const [rx, ry, theta] = pos;
@@ -465,21 +465,21 @@ function drawMap() {
         const scale = w / (MAP_RANGE.xMax - MAP_RANGE.xMin);
         const robotR = 0.15 * scale;
         const color = ROBOT_COLORS[parseInt(rid)] || '#fff';
-        
+
         // Body
         ctx.fillStyle = color + '40';
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(cx, cy, robotR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-        
+
         // Direction arrow
         const arrowLen = robotR * 1.3;
-        const ax = cx + arrowLen * Math.cos(-theta + Math.PI/2);
-        const ay = cy + arrowLen * Math.sin(-theta + Math.PI/2);
+        const ax = cx + arrowLen * Math.cos(-theta + Math.PI / 2);
+        const ay = cy + arrowLen * Math.sin(-theta + Math.PI / 2);
         ctx.strokeStyle = color;
         ctx.lineWidth = 2.5;
         ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ax, ay); ctx.stroke();
-        
+
         // Arrow head
         const headLen = 6;
         const angle = Math.atan2(ay - cy, ax - cx);
@@ -489,7 +489,7 @@ function drawMap() {
         ctx.moveTo(ax, ay);
         ctx.lineTo(ax - headLen * Math.cos(angle + 0.4), ay - headLen * Math.sin(angle + 0.4));
         ctx.stroke();
-        
+
         // Label
         ctx.fillStyle = color;
         ctx.font = '600 11px Inter, sans-serif';
@@ -498,13 +498,27 @@ function drawMap() {
 }
 
 function resetMapView() {
-    // Clear trajectories and redraw
+    // Reset all viz state to defaults
+    vizState.positions = {};
     vizState.trajectories = {};
+    vizState.ground_truth = {};
+    vizState.object = null;
+    vizState.obstacles = [];
+    vizState.grip_positions = {};
+    vizState.destination = null;
+    vizState.centroid_path = [];
+    vizState.formation_circle = null;
+    vizState.ekf = {};
+    vizState.bno055 = {};
+    vizState.odometry = {};
+    vizState.localization = {};
     requestRedraw();
 }
 
 function clearTrajectories() {
     vizState.trajectories = {};
+    vizState.ground_truth = {};
+    vizState.centroid_path = [];
     requestRedraw();
 }
 
@@ -659,7 +673,7 @@ function updateArmResult(rid, data) {
 function updateSensorCard(rid, source, data) {
     const card = document.querySelector(`.sensor-card[data-rid="${rid}"]`);
     if (!card) return;
-    
+
     if (source === 'ekf' && data.x !== undefined) {
         const xEl = card.querySelector('.ekf-x');
         const yEl = card.querySelector('.ekf-y');
@@ -784,7 +798,7 @@ function buildMotorGrid() {
         const row = document.createElement('div');
         row.className = 'motor-row';
         row.innerHTML = `
-            <label>Motor ${i+1}:</label>
+            <label>Motor ${i + 1}:</label>
             <span class="rpm-value" id="rpm-${i}">0.00 RPM</span>
             <label>Speed:</label>
             <input type="number" id="speed-${i}" value="0" class="input-sm">
@@ -801,7 +815,7 @@ function buildPIDGrid() {
         const row = document.createElement('div');
         row.className = 'pid-row';
         row.innerHTML = `
-            <label>M${i+1}:</label>
+            <label>M${i + 1}:</label>
             <label>P:</label><input type="number" id="pid-p-${i}" value="1.0" step="0.1" class="input-xs">
             <label>I:</label><input type="number" id="pid-i-${i}" value="0.0" step="0.01" class="input-xs">
             <label>D:</label><input type="number" id="pid-d-${i}" value="0.0" step="0.01" class="input-xs">
@@ -891,7 +905,7 @@ function sendArmRest() {
 function buildConnectionPanels() {
     const container = document.getElementById('connection-panels');
     container.innerHTML = '';
-    
+
     ROBOT_IDS.forEach(rid => {
         const panel = document.createElement('div');
         panel.className = 'conn-panel';
@@ -969,21 +983,21 @@ function handleKeyboard() {
     if (!kbActive) return;
     const speed = parseFloat(document.getElementById('kb-speed').value);
     let dx = 0, dy = 0, dtheta = 0;
-    
+
     if (activeKeys.has('w')) dy = speed;
     if (activeKeys.has('s')) dy = -speed;
     if (activeKeys.has('a')) dx = -speed;
     if (activeKeys.has('d')) dx = speed;
     if (activeKeys.has('q')) dtheta = speed * 3;
     if (activeKeys.has('e')) dtheta = -speed * 3;
-    
+
     // Normalize diagonal
     if (dx !== 0 && dy !== 0) {
-        const norm = Math.sqrt(dx*dx + dy*dy);
+        const norm = Math.sqrt(dx * dx + dy * dy);
         dx = dx / norm * speed;
         dy = dy / norm * speed;
     }
-    
+
     sendAction({ action: 'kinematic', robot_id: selectedRobot, dot_x: dx, dot_y: dy, dot_theta: dtheta });
 }
 
@@ -1065,13 +1079,13 @@ function getChartColors() {
 function initRPMChart() {
     const ctx = document.getElementById('rpm-chart');
     if (!ctx) return;
-    
+
     const motorColors = ['#f06565', '#60a5fa', '#34d399', '#fbbf24'];
     const cc = getChartColors();
     rpmData = {
         labels: [],
-        datasets: [0,1,2,3].map(i => ({
-            label: `Motor ${i+1}`,
+        datasets: [0, 1, 2, 3].map(i => ({
+            label: `Motor ${i + 1}`,
             data: [],
             borderColor: motorColors[i],
             borderWidth: 1.5,
@@ -1079,7 +1093,7 @@ function initRPMChart() {
             tension: 0.3
         }))
     };
-    
+
     rpmChart = new Chart(ctx, {
         type: 'line',
         data: rpmData,
@@ -1121,7 +1135,7 @@ async function loadProfiles() {
     try {
         const resp = await fetch('/api/profiles');
         const profiles = await resp.json();
-        
+
         let rid = 1;
         for (const [name, info] of Object.entries(profiles)) {
             const hostEl = document.getElementById(`conn-host-${rid}`);
@@ -1131,7 +1145,7 @@ async function loadProfiles() {
             rid++;
             if (rid > 3) break;
         }
-    } catch(e) { /* ignore */ }
+    } catch (e) { /* ignore */ }
 }
 
 // ============================================================
