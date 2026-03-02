@@ -5,10 +5,15 @@ Standalone entry point. No dependency on the original server/ project.
 Run: python app.py
 """
 import os
+import sys
 import json
 import asyncio
 import threading
 import time
+import signal
+import socket
+import argparse
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
@@ -120,16 +125,22 @@ server.log_tx_arm        = LOG_ROBOT_TX_ARM
 server.log_tx_position   = LOG_ROBOT_TX_POSITION
 server.log_tx_firmware   = LOG_ROBOT_TX_FIRMWARE
 
-app = FastAPI(title="Robot Web Dashboard")
+# ============================================================
+# Lifespan (replaces deprecated @app.on_event)
+# ============================================================
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    # --- startup ---
+    ws_manager.set_loop(asyncio.get_event_loop())
+    yield
+    # --- shutdown ---
+
+
+app = FastAPI(title="Robot Web Dashboard", lifespan=lifespan)
 
 # Serve static files
 static_dir = os.path.join(os.path.dirname(__file__), 'static')
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
-
-
-@app.on_event("startup")
-async def startup():
-    ws_manager.set_loop(asyncio.get_event_loop())
 
 
 @app.get("/")
@@ -378,11 +389,75 @@ async def get_profiles():
 
 
 # ============================================================
+# Helpers
+# ============================================================
+def _free_port(port: int) -> bool:
+    """Kill any process occupying *port*. Returns True if freed."""
+    if sys.platform == 'win32':
+        import subprocess
+        try:
+            out = subprocess.check_output(
+                f'netstat -ano | findstr :{port}', shell=True, text=True
+            )
+            for line in out.strip().splitlines():
+                parts = line.split()
+                if 'LISTENING' in parts:
+                    pid = int(parts[-1])
+                    if pid != os.getpid():
+                        os.kill(pid, signal.SIGTERM)
+                        time.sleep(0.3)
+                        print(f"[port] Killed PID {pid} on port {port}")
+            return True
+        except subprocess.CalledProcessError:
+            return True          # nothing on this port
+    else:
+        # Linux/macOS: fuser or lsof
+        import subprocess
+        try:
+            subprocess.run(f'fuser -k {port}/tcp', shell=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(0.3)
+        except Exception:
+            pass
+        return True
+
+
+def _port_available(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('127.0.0.1', port)) != 0
+
+
+# ============================================================
 # Main
 # ============================================================
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Robot Web Dashboard")
+    parser.add_argument('--port', '-p', type=int, default=8000,
+                        help='HTTP port (default: 8000)')
+    parser.add_argument('--no-kill', action='store_true',
+                        help='Do not auto-kill process on the port')
+    args = parser.parse_args()
+
+    port = args.port
+
+    # Auto-free the port if occupied
+    if not _port_available(port):
+        if args.no_kill:
+            print(f"[ERROR] Port {port} is already in use. ")
+            print(f"        Use --port <N> to choose another port, "
+                  f"or remove --no-kill to auto-free it.")
+            sys.exit(1)
+        print(f"[port] Port {port} in use — freeing...")
+        _free_port(port)
+        # Verify
+        time.sleep(0.5)
+        if not _port_available(port):
+            print(f"[ERROR] Could not free port {port}. Kill it manually or use --port <N>.")
+            sys.exit(1)
+        print(f"[port] Port {port} is now available.")
+
     print("=" * 60)
     print("  Robot Web Dashboard")
-    print("  Open http://localhost:8000 in your browser")
+    print(f"  Open http://localhost:{port} in your browser")
     print("=" * 60)
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
