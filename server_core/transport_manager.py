@@ -229,8 +229,8 @@ class TransportManager:
         
         # Get arrived robot IDs
         arrived_robots = [rid for rid, arrived in server.approach_manager.arrived_status.items() if arrived]
-        if len(arrived_robots) < 2:
-            server.gui.update_monitor("Error: Need at least 2 robots for transport")
+        if len(arrived_robots) < 1:
+            server.gui.update_monitor("Error: Need at least 1 robot for transport")
             return False
         
         # Compute centroid trajectory
@@ -280,47 +280,57 @@ class TransportManager:
         for point in centroid_trajectory:
             point['t'] += server.execution_time_offset
         
-        # Send trajectory to each robot
-        success_count = 0
-        for robot_id in arrived_robots:
-            if robot_id not in server.robot_connections:
-                server.gui.update_monitor(f"Robot {robot_id} not connected - skipping")
-                continue
-            
-            # Get this robot's offset
-            offset = formation_offsets.get(robot_id, (0.0, 0.0))
-            
-            # Prepare metadata with phase info and offset
-            meta = {
-                "phase": "transport",
-                "trajectory_type": "centroid",
-                "formation_offset": list(offset),  # [dx, dy]
-                "robot_id": robot_id,
-                "destination": list(self.destination_position),
-                "num_robots": len(arrived_robots)
-            }
-            
-            # Store trajectory
-            self.transport_trajectories[robot_id] = centroid_trajectory
-            
-            # Send to robot
-            if server.send_trajectory_to_robot(robot_id, centroid_trajectory, meta):
-                # Small delay to ensure trajectory is received before execute command
-                time.sleep(0.01)  # 10ms delay
+        # User requested Mutex Lock to block sync_position during trajectory loading.
+        server.trajectory_sync_lock.acquire()
+        try:
+            # Send trajectory to each robot
+            success_count = 0
+            for robot_id in arrived_robots:
+                if robot_id not in server.robot_connections:
+                    server.gui.update_monitor(f"Robot {robot_id} not connected - skipping")
+                    continue
                 
-                # Send execute command with synchronized start time
-                exec_cmd = json.dumps({
-                    "type": "control", 
-                    "cmd": "execute_trajectory",
-                    "time": sync_start_time  # Synchronized start time for all robots
-                })
-                server.send_command_to_robot(robot_id, exec_cmd)
-                success_count += 1
-                server.gui.update_monitor(
-                    f"Robot {robot_id}: Sent transport trajectory (offset: "
-                    f"[{offset[0]:.3f}, {offset[1]:.3f}])"
-                )
-        
+                # Get this robot's offset
+                offset = formation_offsets.get(robot_id, (0.0, 0.0))
+                
+                # Prepare metadata with phase info and offset
+                meta = {
+                    "phase": "transport",
+                    "trajectory_type": "centroid",
+                    "formation_offset": list(offset),  # [dx, dy]
+                    "robot_id": robot_id,
+                    "destination": list(self.destination_position),
+                    "num_robots": len(arrived_robots)
+                }
+                
+                # Store trajectory
+                self.transport_trajectories[robot_id] = centroid_trajectory
+                
+                # Send to robot
+                if server.send_trajectory_to_robot(robot_id, centroid_trajectory, meta):
+                    # Small delay to ensure trajectory is received before execute command
+                    time.sleep(0.01)  # 10ms delay
+                    
+                    # Send execute command with synchronized start time
+                    exec_cmd = json.dumps({
+                        "type": "control", 
+                        "cmd": "execute_trajectory",
+                        "time": sync_start_time  # Synchronized start time for all robots
+                    })
+                    server.send_command_to_robot(robot_id, exec_cmd)
+                    success_count += 1
+                    server.gui.update_monitor(
+                        f"Robot {robot_id}: Sent transport trajectory (offset: "
+                        f"[{offset[0]:.3f}, {offset[1]:.3f}])"
+                    )
+                    
+            # Keep the mutex engaged for an extra few seconds so the ESP32s can finish 
+            # parsing their large TCP buffers before sync_position starts interlacing them
+            time.sleep(3.0)
+            
+        finally:
+            server.trajectory_sync_lock.release()
+            
         if success_count > 0:
             server.gui.update_monitor(
                 f"=== PHASE 2 TRANSPORT STARTED ({success_count} robots) ==="

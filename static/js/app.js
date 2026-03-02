@@ -8,7 +8,7 @@ let selectedRobot = 1;
 let selectedArmRobot = 1;
 let kbActive = false;
 let activeKeys = new Set();
-const ROBOT_IDS = [1, 2, 3];
+const ROBOT_IDS = [1];
 const ROBOT_COLORS = { 1: '#f06565', 2: '#34d399', 3: '#60a5fa' };
 
 // Viz state (mirrors server)
@@ -94,25 +94,25 @@ function toggleMonitor() {
 function connectWS() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(`${proto}://${location.host}/ws`);
-    
+
     ws.onopen = () => {
         document.getElementById('ws-indicator').className = 'indicator on';
         document.getElementById('ws-text').textContent = 'Connected';
     };
-    
+
     ws.onclose = () => {
         document.getElementById('ws-indicator').className = 'indicator off';
         document.getElementById('ws-text').textContent = 'Disconnected';
         setTimeout(connectWS, 2000);
     };
-    
+
     ws.onerror = () => ws.close();
-    
+
     ws.onmessage = (evt) => {
         try {
             const msg = JSON.parse(evt.data);
             handleMessage(msg);
-        } catch(e) { console.error('WS parse error:', e); }
+        } catch (e) { console.error('WS parse error:', e); }
     };
 }
 
@@ -126,7 +126,7 @@ function sendAction(data) {
 // Message Handler
 // ============================================================
 function handleMessage(msg) {
-    switch(msg.type) {
+    switch (msg.type) {
         case 'monitor':
             appendMonitor(msg.message);
             break;
@@ -212,42 +212,47 @@ function handleVizFullState(state) {
 // Viz Updates
 // ============================================================
 function handleVizUpdate(method, args) {
-    switch(method) {
-        case 'update_position': {
-            const [rid, x, y, theta] = args;
-            vizState.positions[rid] = [x, y, theta];
-            if (!vizState.trajectories[rid]) vizState.trajectories[rid] = [];
-            vizState.trajectories[rid].push([x, y]);
-            if (vizState.trajectories[rid].length > 2000)
-                vizState.trajectories[rid] = vizState.trajectories[rid].slice(-1500);
-            updateSensorCard(rid, 'ekf', { x, y });
-            requestRedraw();
-            break;
-        }
-        case 'update_ekf': {
-            const [rid, x, y] = args;
-            vizState.ekf[rid] = [x, y];
-            updateSensorCard(rid, 'ekf', { x, y });
-            break;
-        }
-        case 'update_bno055': {
-            const [rid, x, y, vx, vy] = args;
-            vizState.bno055[rid] = [x, y, vx, vy];
-            updateSensorCard(rid, 'bno055', { x, y, vx, vy });
-            break;
-        }
-        case 'update_odometry': {
-            const [rid, x, y, vx, vy] = args;
-            vizState.odometry[rid] = [x, y, vx, vy];
-            updateSensorCard(rid, 'odo', { x, y, vx, vy });
-            break;
-        }
-        case 'update_localization': {
-            const [rid, x, y] = args;
-            vizState.localization[rid] = [x, y];
-            updateSensorCard(rid, 'loc', { x, y });
-            break;
-        }
+    switch (method) {
+        case 'update_position':
+            {
+                const [rid, x, y, theta] = args;
+                vizState.positions[rid] = [x, y, theta];
+                if (!vizState.trajectories[rid]) vizState.trajectories[rid] = [];
+                vizState.trajectories[rid].push([x, y]);
+                if (vizState.trajectories[rid].length > 2000)
+                    vizState.trajectories[rid] = vizState.trajectories[rid].slice(-1500);
+                updateSensorCard(rid, 'ekf', { x, y });
+                requestRedraw();
+                break;
+            }
+        case 'update_ekf':
+            {
+                const [rid, x, y] = args;
+                vizState.ekf[rid] = [x, y];
+                updateSensorCard(rid, 'ekf', { x, y });
+                break;
+            }
+        case 'update_bno055':
+            {
+                const [rid, x, y, vx, vy] = args;
+                vizState.bno055[rid] = [x, y, vx, vy];
+                updateSensorCard(rid, 'bno055', { x, y, vx, vy });
+                break;
+            }
+        case 'update_odometry':
+            {
+                const [rid, x, y, vx, vy] = args;
+                vizState.odometry[rid] = [x, y, vx, vy];
+                updateSensorCard(rid, 'odo', { x, y, vx, vy });
+                break;
+            }
+        case 'update_localization':
+            {
+                const [rid, x, y] = args;
+                vizState.localization[rid] = [x, y];
+                updateSensorCard(rid, 'loc', { x, y });
+                break;
+            }
         case 'set_object_position':
             vizState.object = args;
             requestRedraw();
@@ -292,12 +297,13 @@ let mapNeedsRedraw = false;
 function requestRedraw() { mapNeedsRedraw = true; }
 
 function worldToCanvas(x, y, canvas) {
-    const w = canvas.width, h = canvas.height;
+    const w = canvas.width,
+        h = canvas.height;
     const sx = w / (MAP_RANGE.xMax - MAP_RANGE.xMin);
     const sy = h / (MAP_RANGE.yMax - MAP_RANGE.yMin);
     return [
         (x - MAP_RANGE.xMin) * sx,
-        h - (y - MAP_RANGE.yMin) * sy  // flip Y
+        h - (y - MAP_RANGE.yMin) * sy // flip Y
     ];
 }
 
@@ -305,28 +311,35 @@ function drawMap() {
     const canvas = document.getElementById('map-canvas');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    const w = canvas.width, h = canvas.height;
-    
+    const w = canvas.width,
+        h = canvas.height;
+
     // Theme-aware colors
     const gridColor = cssVar('--map-grid');
     const labelColor = cssVar('--map-label');
     const isDark = getTheme() === 'dark';
-    
+
     ctx.clearRect(0, 0, w, h);
-    
+
     // Grid
     ctx.strokeStyle = gridColor;
     ctx.lineWidth = 0.5;
     const gridSize = 0.5;
     for (let gx = Math.ceil(MAP_RANGE.xMin / gridSize) * gridSize; gx <= MAP_RANGE.xMax; gx += gridSize) {
         const [px] = worldToCanvas(gx, 0, canvas);
-        ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, h); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, h);
+        ctx.stroke();
     }
     for (let gy = Math.ceil(MAP_RANGE.yMin / gridSize) * gridSize; gy <= MAP_RANGE.yMax; gy += gridSize) {
         const [, py] = worldToCanvas(0, gy, canvas);
-        ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(w, py); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, py);
+        ctx.lineTo(w, py);
+        ctx.stroke();
     }
-    
+
     // Axes labels
     ctx.fillStyle = labelColor;
     ctx.font = '10px Inter, sans-serif';
@@ -338,7 +351,7 @@ function drawMap() {
         const [px, py] = worldToCanvas(0, gy, canvas);
         ctx.fillText(gy.toString(), px + 3, py - 3);
     }
-    
+
     // Obstacles
     const obsColor = isDark ? 'rgba(240,101,101,0.25)' : 'rgba(220,50,50,0.15)';
     const obsStroke = '#f06565';
@@ -349,7 +362,10 @@ function drawMap() {
             ctx.fillStyle = obsColor;
             ctx.strokeStyle = obsStroke;
             ctx.lineWidth = 1.5;
-            ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
         } else if (obs.type === 'rectangle') {
             const [x1, y1] = worldToCanvas(obs.x1, obs.y2, canvas);
             const [x2, y2] = worldToCanvas(obs.x2, obs.y1, canvas);
@@ -360,23 +376,24 @@ function drawMap() {
             ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
         }
     }
-    
+
     // Object
     if (vizState.object) {
         const [ox, oy, ol, ow_] = vizState.object;
         const [cx, cy] = worldToCanvas(ox, oy, canvas);
         const scale = w / (MAP_RANGE.xMax - MAP_RANGE.xMin);
-        const rw = ol * scale, rh = ow_ * scale;
+        const rw = ol * scale,
+            rh = ow_ * scale;
         ctx.fillStyle = isDark ? 'rgba(251,191,36,0.3)' : 'rgba(230,140,0,0.2)';
         ctx.strokeStyle = '#fbbf24';
         ctx.lineWidth = 2;
-        ctx.fillRect(cx - rw/2, cy - rh/2, rw, rh);
-        ctx.strokeRect(cx - rw/2, cy - rh/2, rw, rh);
+        ctx.fillRect(cx - rw / 2, cy - rh / 2, rw, rh);
+        ctx.strokeRect(cx - rw / 2, cy - rh / 2, rw, rh);
         ctx.fillStyle = '#fbbf24';
         ctx.font = '600 11px Inter, sans-serif';
-        ctx.fillText('Object', cx - 18, cy - rh/2 - 5);
+        ctx.fillText('Object', cx - 18, cy - rh / 2 - 5);
     }
-    
+
     // Grip positions
     for (const [rid, pos] of Object.entries(vizState.grip_positions)) {
         const [gx, gy] = worldToCanvas(pos[0], pos[1], canvas);
@@ -384,20 +401,28 @@ function drawMap() {
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         // Draw X marker
-        ctx.beginPath(); ctx.moveTo(gx-6, gy-6); ctx.lineTo(gx+6, gy+6); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(gx+6, gy-6); ctx.lineTo(gx-6, gy+6); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(gx - 6, gy - 6);
+        ctx.lineTo(gx + 6, gy + 6);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(gx + 6, gy - 6);
+        ctx.lineTo(gx - 6, gy + 6);
+        ctx.stroke();
     }
-    
+
     // Destination
     if (vizState.destination) {
         const [dx, dy] = worldToCanvas(vizState.destination[0], vizState.destination[1], canvas);
         ctx.fillStyle = '#a855f7';
-        ctx.beginPath(); ctx.arc(dx, dy, 7, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath();
+        ctx.arc(dx, dy, 7, 0, Math.PI * 2);
+        ctx.fill();
         ctx.fillStyle = isDark ? '#c084fc' : '#7c3aed';
         ctx.font = '600 11px Inter, sans-serif';
         ctx.fillText('DEST', dx + 10, dy + 4);
     }
-    
+
     // Formation circle
     if (vizState.formation_circle) {
         const [fcx, fcy, fr] = vizState.formation_circle;
@@ -406,10 +431,12 @@ function drawMap() {
         ctx.strokeStyle = isDark ? 'rgba(100,200,255,0.3)' : 'rgba(60,130,200,0.3)';
         ctx.lineWidth = 1;
         ctx.setLineDash([5, 5]);
-        ctx.beginPath(); ctx.arc(cx, cy, fr * scale, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(cx, cy, fr * scale, 0, Math.PI * 2);
+        ctx.stroke();
         ctx.setLineDash([]);
     }
-    
+
     // Centroid path
     if (vizState.centroid_path && vizState.centroid_path.length > 1) {
         ctx.strokeStyle = '#a855f7';
@@ -419,12 +446,13 @@ function drawMap() {
         for (let i = 0; i < vizState.centroid_path.length; i++) {
             const p = vizState.centroid_path[i];
             const [px, py] = worldToCanvas(p[0], p[1], canvas);
-            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
         }
         ctx.stroke();
         ctx.setLineDash([]);
     }
-    
+
     // Ground truth paths
     for (const [rid, path] of Object.entries(vizState.ground_truth)) {
         if (!path || path.length < 2) continue;
@@ -435,12 +463,13 @@ function drawMap() {
         ctx.beginPath();
         for (let i = 0; i < path.length; i++) {
             const [px, py] = worldToCanvas(path[i][0], path[i][1], canvas);
-            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
         }
         ctx.stroke();
         ctx.setLineDash([]);
     }
-    
+
     // Trajectory trails
     for (const [rid, pts] of Object.entries(vizState.trajectories)) {
         if (!pts || pts.length < 2) continue;
@@ -452,12 +481,13 @@ function drawMap() {
         const start = Math.max(0, pts.length - 500);
         for (let i = start; i < pts.length; i++) {
             const [px, py] = worldToCanvas(pts[i][0], pts[i][1], canvas);
-            if (i === start) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            if (i === start) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
         }
         ctx.stroke();
         ctx.globalAlpha = 1;
     }
-    
+
     // Robots
     for (const [rid, pos] of Object.entries(vizState.positions)) {
         const [rx, ry, theta] = pos;
@@ -465,21 +495,27 @@ function drawMap() {
         const scale = w / (MAP_RANGE.xMax - MAP_RANGE.xMin);
         const robotR = 0.15 * scale;
         const color = ROBOT_COLORS[parseInt(rid)] || '#fff';
-        
+
         // Body
         ctx.fillStyle = color + '40';
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(cx, cy, robotR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-        
+        ctx.beginPath();
+        ctx.arc(cx, cy, robotR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
         // Direction arrow
         const arrowLen = robotR * 1.3;
-        const ax = cx + arrowLen * Math.cos(-theta + Math.PI/2);
-        const ay = cy + arrowLen * Math.sin(-theta + Math.PI/2);
+        const ax = cx + arrowLen * Math.cos(-theta + Math.PI / 2);
+        const ay = cy + arrowLen * Math.sin(-theta + Math.PI / 2);
         ctx.strokeStyle = color;
         ctx.lineWidth = 2.5;
-        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ax, ay); ctx.stroke();
-        
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(ax, ay);
+        ctx.stroke();
+
         // Arrow head
         const headLen = 6;
         const angle = Math.atan2(ay - cy, ax - cx);
@@ -489,7 +525,7 @@ function drawMap() {
         ctx.moveTo(ax, ay);
         ctx.lineTo(ax - headLen * Math.cos(angle + 0.4), ay - headLen * Math.sin(angle + 0.4));
         ctx.stroke();
-        
+
         // Label
         ctx.fillStyle = color;
         ctx.font = '600 11px Inter, sans-serif';
@@ -498,13 +534,27 @@ function drawMap() {
 }
 
 function resetMapView() {
-    // Clear trajectories and redraw
+    // Reset all viz state to defaults
+    vizState.positions = {};
     vizState.trajectories = {};
+    vizState.ground_truth = {};
+    vizState.object = null;
+    vizState.obstacles = [];
+    vizState.grip_positions = {};
+    vizState.destination = null;
+    vizState.centroid_path = [];
+    vizState.formation_circle = null;
+    vizState.ekf = {};
+    vizState.bno055 = {};
+    vizState.odometry = {};
+    vizState.localization = {};
     requestRedraw();
 }
 
 function clearTrajectories() {
     vizState.trajectories = {};
+    vizState.ground_truth = {};
+    vizState.centroid_path = [];
     requestRedraw();
 }
 
@@ -659,7 +709,7 @@ function updateArmResult(rid, data) {
 function updateSensorCard(rid, source, data) {
     const card = document.querySelector(`.sensor-card[data-rid="${rid}"]`);
     if (!card) return;
-    
+
     if (source === 'ekf' && data.x !== undefined) {
         const xEl = card.querySelector('.ekf-x');
         const yEl = card.querySelector('.ekf-y');
@@ -712,7 +762,10 @@ function clearObstacles() {
 function startApproach() {
     ROBOT_IDS.forEach(rid => {
         const el = document.getElementById(`arrival-${rid}`);
-        if (el) { el.textContent = `R${rid}: In Progress`; el.className = 'arrival-badge in-progress'; }
+        if (el) {
+            el.textContent = `R${rid}: In Progress`;
+            el.className = 'arrival-badge in-progress';
+        }
     });
     sendAction({ action: 'start_approach', use_vector_field: true });
 }
@@ -721,7 +774,10 @@ function abortApproach() {
     sendAction({ action: 'abort_approach' });
     ROBOT_IDS.forEach(rid => {
         const el = document.getElementById(`arrival-${rid}`);
-        if (el) { el.textContent = `R${rid}: Aborted`; el.className = 'arrival-badge aborted'; }
+        if (el) {
+            el.textContent = `R${rid}: Aborted`;
+            el.className = 'arrival-badge aborted';
+        }
     });
 }
 
@@ -784,7 +840,7 @@ function buildMotorGrid() {
         const row = document.createElement('div');
         row.className = 'motor-row';
         row.innerHTML = `
-            <label>Motor ${i+1}:</label>
+            <label>Motor ${i + 1}:</label>
             <span class="rpm-value" id="rpm-${i}">0.00 RPM</span>
             <label>Speed:</label>
             <input type="number" id="speed-${i}" value="0" class="input-sm">
@@ -801,7 +857,7 @@ function buildPIDGrid() {
         const row = document.createElement('div');
         row.className = 'pid-row';
         row.innerHTML = `
-            <label>M${i+1}:</label>
+            <label>M${i + 1}:</label>
             <label>P:</label><input type="number" id="pid-p-${i}" value="1.0" step="0.1" class="input-xs">
             <label>I:</label><input type="number" id="pid-i-${i}" value="0.0" step="0.01" class="input-xs">
             <label>D:</label><input type="number" id="pid-d-${i}" value="0.0" step="0.01" class="input-xs">
@@ -818,7 +874,9 @@ function setMotorSpeed(motor) {
 
 function setPIDMotor(motor) {
     sendAction({
-        action: 'set_pid', robot_id: selectedRobot, motor,
+        action: 'set_pid',
+        robot_id: selectedRobot,
+        motor,
         p: parseFloat(document.getElementById(`pid-p-${motor}`).value),
         i: parseFloat(document.getElementById(`pid-i-${motor}`).value),
         d: parseFloat(document.getElementById(`pid-d-${motor}`).value)
@@ -826,11 +884,15 @@ function setPIDMotor(motor) {
 }
 
 function savePID() { sendAction({ action: 'save_pid', robot_id: selectedRobot }); }
+
 function loadPID() { sendAction({ action: 'load_pid', robot_id: selectedRobot }); }
 
 function emergencyStop() { sendAction({ action: 'emergency_stop', robot_id: selectedRobot }); }
+
 function resetESP() { sendAction({ action: 'send_command', robot_id: selectedRobot, command: 'reset' }); }
+
 function runTestSquare() { sendAction({ action: 'test_trajectory', robot_id: selectedRobot, shape: 'square' }); }
+
 function runTestCircle() { sendAction({ action: 'test_trajectory', robot_id: selectedRobot, shape: 'circle' }); }
 
 // ============================================================
@@ -845,7 +907,8 @@ function selectArmTab(rid) {
 
 function sendArmIK() {
     sendAction({
-        action: 'arm_ik', robot_id: selectedArmRobot,
+        action: 'arm_ik',
+        robot_id: selectedArmRobot,
         x: parseFloat(document.getElementById('arm-x').value),
         y: parseFloat(document.getElementById('arm-y').value),
         z: parseFloat(document.getElementById('arm-z').value),
@@ -861,7 +924,8 @@ function sendArmServo() {
 
 function sendArmPick() {
     sendAction({
-        action: 'arm_pick', robot_id: selectedArmRobot,
+        action: 'arm_pick',
+        robot_id: selectedArmRobot,
         x: parseFloat(document.getElementById('arm-x').value),
         y: parseFloat(document.getElementById('arm-y').value),
         z: parseFloat(document.getElementById('arm-z').value)
@@ -870,7 +934,8 @@ function sendArmPick() {
 
 function sendArmPlace() {
     sendAction({
-        action: 'arm_place', robot_id: selectedArmRobot,
+        action: 'arm_place',
+        robot_id: selectedArmRobot,
         x: parseFloat(document.getElementById('arm-x').value),
         y: parseFloat(document.getElementById('arm-y').value),
         z: parseFloat(document.getElementById('arm-z').value)
@@ -891,7 +956,7 @@ function sendArmRest() {
 function buildConnectionPanels() {
     const container = document.getElementById('connection-panels');
     container.innerHTML = '';
-    
+
     ROBOT_IDS.forEach(rid => {
         const panel = document.createElement('div');
         panel.className = 'conn-panel';
@@ -912,7 +977,8 @@ function buildConnectionPanels() {
 
 function connectRobot(rid) {
     sendAction({
-        action: 'connect', robot_id: rid,
+        action: 'connect',
+        robot_id: rid,
         host: document.getElementById(`conn-host-${rid}`).value,
         port: parseInt(document.getElementById(`conn-port-${rid}`).value)
     });
@@ -968,22 +1034,24 @@ function closeKeyboardControl() {
 function handleKeyboard() {
     if (!kbActive) return;
     const speed = parseFloat(document.getElementById('kb-speed').value);
-    let dx = 0, dy = 0, dtheta = 0;
-    
+    let dx = 0,
+        dy = 0,
+        dtheta = 0;
+
     if (activeKeys.has('w')) dy = speed;
     if (activeKeys.has('s')) dy = -speed;
     if (activeKeys.has('a')) dx = -speed;
     if (activeKeys.has('d')) dx = speed;
     if (activeKeys.has('q')) dtheta = speed * 3;
     if (activeKeys.has('e')) dtheta = -speed * 3;
-    
+
     // Normalize diagonal
     if (dx !== 0 && dy !== 0) {
-        const norm = Math.sqrt(dx*dx + dy*dy);
+        const norm = Math.sqrt(dx * dx + dy * dy);
         dx = dx / norm * speed;
         dy = dy / norm * speed;
     }
-    
+
     sendAction({ action: 'kinematic', robot_id: selectedRobot, dot_x: dx, dot_y: dy, dot_theta: dtheta });
 }
 
@@ -1065,13 +1133,13 @@ function getChartColors() {
 function initRPMChart() {
     const ctx = document.getElementById('rpm-chart');
     if (!ctx) return;
-    
+
     const motorColors = ['#f06565', '#60a5fa', '#34d399', '#fbbf24'];
     const cc = getChartColors();
     rpmData = {
         labels: [],
-        datasets: [0,1,2,3].map(i => ({
-            label: `Motor ${i+1}`,
+        datasets: [0, 1, 2, 3].map(i => ({
+            label: `Motor ${i + 1}`,
             data: [],
             borderColor: motorColors[i],
             borderWidth: 1.5,
@@ -1079,7 +1147,7 @@ function initRPMChart() {
             tension: 0.3
         }))
     };
-    
+
     rpmChart = new Chart(ctx, {
         type: 'line',
         data: rpmData,
@@ -1121,7 +1189,7 @@ async function loadProfiles() {
     try {
         const resp = await fetch('/api/profiles');
         const profiles = await resp.json();
-        
+
         let rid = 1;
         for (const [name, info] of Object.entries(profiles)) {
             const hostEl = document.getElementById(`conn-host-${rid}`);
@@ -1131,7 +1199,7 @@ async function loadProfiles() {
             rid++;
             if (rid > 3) break;
         }
-    } catch(e) { /* ignore */ }
+    } catch (e) { /* ignore */ }
 }
 
 // ============================================================

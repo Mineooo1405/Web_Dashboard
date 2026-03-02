@@ -1,9 +1,3 @@
-"""
-Web Dashboard - FastAPI backend with WebSocket for real-time robot control.
-
-Standalone entry point. No dependency on the original server/ project.
-Run: python app.py
-"""
 import os
 import sys
 import json
@@ -382,8 +376,6 @@ async def get_profiles():
     except FileNotFoundError:
         profiles = {
             'Robot 1': {'host': '192.168.1.211', 'port': 2004},
-            'Robot 2': {'host': '192.168.1.212', 'port': 2004},
-            'Robot 3': {'host': '192.168.1.213', 'port': 2004},
         }
     return profiles
 

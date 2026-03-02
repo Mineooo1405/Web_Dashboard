@@ -45,7 +45,7 @@ class Server:
         # Setup visualizer (can be provided by GUI adapter via gui.visualizer)
         self.visualizer = getattr(gui, 'visualizer', None) or _NullVisualizer()
         
-        # Multi-robot state - all indexed by robot_id (1, 2, 3)
+        # Single robot state - all indexed by robot_id
         self.robot_connections = {}  # {robot_id: socket}
         self.robot_threads = {}      # {robot_id: thread}
         self.socket_locks = {}       # {robot_id: threading.Lock} - prevent race condition
@@ -64,8 +64,8 @@ class Server:
         self.robot_paths = {}        # {robot_id: [(x, y), ...]}
         self.robot_path_index = {}   # {robot_id: current_waypoint_index}
         
-        # Initialize state for 3 robots
-        for robot_id in [1, 2, 3]:
+        # Initialize state for 1 robot
+        for robot_id in [1]:
             self.speed[robot_id] = [0, 0, 0, 0]
             self.encoders[robot_id] = [0, 0, 0, 0]
             self.bno055_heading[robot_id] = 0.0
@@ -129,7 +129,7 @@ class Server:
         self.path_planner = get_path_planner(x_range=(-2.0, 15.0), 
                                              y_range=(-2.0, 15.0), 
                                              cell_size=0.05)
-        self.formation_planner = FormationPlanner(num_robots=3, grip_radius=self.calculated_grip_radius)
+        self.formation_planner = FormationPlanner(num_robots=1, grip_radius=self.calculated_grip_radius)
 
         
         # Robot positions from EKF (updated automatically)
@@ -161,6 +161,9 @@ class Server:
         self.ui_update_thread_active = True
         self.ui_update_thread = threading.Thread(target=self._ui_update_worker, daemon=True)
         self.ui_update_thread.start()
+        
+        # Mutex lock to block sync_position during trajectory loading (requested by user)
+        self.trajectory_sync_lock = threading.Lock()
         
         # Sync position logging (async, non-blocking)
         self.sync_log_queue = queue.Queue(maxsize=10000)
@@ -688,7 +691,8 @@ class Server:
         
         try:
             sock = self.robot_connections[robot_id]
-            sock.sendall((command + "\n").encode())
+            with self.socket_locks.get(robot_id, threading.Lock()):
+                sock.sendall((command + "\n").encode())
             if self.log_tx_kinematic:
                 print(f"[TX kinematic] Robot {robot_id}: {command}")
         except Exception as e:
@@ -701,7 +705,8 @@ class Server:
             
         try:
             sock = self.robot_connections[robot_id]
-            sock.sendall((command + "\n").encode())
+            with self.socket_locks.get(robot_id, threading.Lock()):
+                sock.sendall((command + "\n").encode())
             if self.log_tx_command:
                 print(f"[TX command] Robot {robot_id}: {command}")
             self.gui.update_monitor(f"Robot {robot_id}: Sent command: {command}")
@@ -724,7 +729,8 @@ class Server:
         try:
             sock = self.robot_connections[robot_id]
             json_str = json.dumps(payload)
-            sock.sendall((json_str + "\n").encode())
+            with self.socket_locks.get(robot_id, threading.Lock()):
+                sock.sendall((json_str + "\n").encode())
             if self.log_tx_arm:
                 print(f"[TX arm_ik] Robot {robot_id}: X={x:.1f}, Y={y:.1f}, Z={z:.1f}, P={pitch:.1f}")
             self.gui.update_monitor(
@@ -744,7 +750,8 @@ class Server:
         try:
             sock = self.robot_connections[robot_id]
             json_str = json.dumps(payload)
-            sock.sendall((json_str + "\n").encode())
+            with self.socket_locks.get(robot_id, threading.Lock()):
+                sock.sendall((json_str + "\n").encode())
             angles_str = ", ".join([f"{k}={v:.1f}" for k, v in angles.items()])
             if self.log_tx_arm:
                 print(f"[TX arm_servo] Robot {robot_id}: {angles_str}")
@@ -774,7 +781,8 @@ class Server:
         try:
             sock = self.robot_connections[robot_id]
             json_str = json.dumps(payload)
-            sock.sendall((json_str + "\n").encode())
+            with self.socket_locks.get(robot_id, threading.Lock()):
+                sock.sendall((json_str + "\n").encode())
             if self.log_tx_arm:
                 print(f"[TX arm_pick] Robot {robot_id}: X={x:.1f}, Y={y:.1f}, Z={z:.1f}")
             self.gui.update_monitor(f"Robot {robot_id}: Sent arm pick cmd - X={x:.1f}, Y={y:.1f}, Z={z:.1f}")
@@ -792,7 +800,8 @@ class Server:
         try:
             sock = self.robot_connections[robot_id]
             json_str = json.dumps(payload)
-            sock.sendall((json_str + "\n").encode())
+            with self.socket_locks.get(robot_id, threading.Lock()):
+                sock.sendall((json_str + "\n").encode())
             if self.log_tx_arm:
                 print(f"[TX arm_place] Robot {robot_id}: X={x:.1f}, Y={y:.1f}, Z={z:.1f}")
             self.gui.update_monitor(f"Robot {robot_id}: Sent arm place cmd - X={x:.1f}, Y={y:.1f}, Z={z:.1f}")
@@ -810,7 +819,8 @@ class Server:
         try:
             sock = self.robot_connections[robot_id]
             json_str = json.dumps(payload)
-            sock.sendall((json_str + "\n").encode())
+            with self.socket_locks.get(robot_id, threading.Lock()):
+                sock.sendall((json_str + "\n").encode())
             if self.log_tx_arm:
                 print(f"[TX arm_gripper] Robot {robot_id}: action={action}")
             self.gui.update_monitor(f"Robot {robot_id}: Sent arm gripper cmd - action={action}")
@@ -828,7 +838,8 @@ class Server:
         try:
             sock = self.robot_connections[robot_id]
             json_str = json.dumps(payload)
-            sock.sendall((json_str + "\n").encode())
+            with self.socket_locks.get(robot_id, threading.Lock()):
+                sock.sendall((json_str + "\n").encode())
             if self.log_tx_arm:
                 print(f"[TX arm_rest] Robot {robot_id}")
             self.gui.update_monitor(f"Robot {robot_id}: Sent arm rest command")
@@ -866,8 +877,15 @@ class Server:
         
         def send_to_robot(target_id, sock, lock):
             try:
-                with lock:
-                    sock.sendall(relay_msg_bytes)
+                # If we cannot acquire the mutex lock instantly, it means ApproachManager is currently
+                # sending trajectories. We drop this sync_position so we don't build a massive queue.
+                if not self.trajectory_sync_lock.acquire(blocking=False):
+                    return
+                try:
+                    with lock:
+                        sock.sendall(relay_msg_bytes)
+                finally:
+                    self.trajectory_sync_lock.release()
             except socket.timeout:
                 pass
             except Exception as e:
@@ -911,7 +929,8 @@ class Server:
             except Exception as log_e:
                 self.gui.update_monitor(f"Robot {robot_id}: Warning - failed to log trajectory: {log_e}")
             
-            sock.sendall((json_str + "\n").encode())
+            with self.socket_locks.get(robot_id, threading.Lock()):
+                sock.sendall((json_str + "\n").encode())
             if self.log_tx_trajectory:
                 print(f"[TX trajectory] Robot {robot_id}: {len(trajectory_list)} points")
             self.gui.update_monitor(f"Robot {robot_id}: Sent full trajectory ({len(trajectory_list)} points)")
@@ -929,7 +948,8 @@ class Server:
         
         try:
             sock = self.robot_connections[robot_id]
-            sock.sendall((command + "\n").encode())
+            with self.socket_locks.get(robot_id, threading.Lock()):
+                sock.sendall((command + "\n").encode())
             if self.log_tx_position:
                 print(f"[TX position_goal] Robot {robot_id}: {command}")
         except Exception as e:
@@ -944,7 +964,8 @@ class Server:
         try:
             command = f"MOTOR:{motor_index} SPEED:{speed}"
             sock = self.robot_connections[robot_id]
-            sock.sendall((command + "\n").encode())
+            with self.socket_locks.get(robot_id, threading.Lock()):
+                sock.sendall((command + "\n").encode())
         except Exception as e:
             print(f"Robot {robot_id}: Set speed error: {e}")
 
@@ -955,7 +976,8 @@ class Server:
                 try:
                     command = "STOP"
                     sock = self.robot_connections[robot_id]
-                    sock.sendall((command + "\n").encode())
+                    with self.socket_locks.get(robot_id, threading.Lock()):
+                        sock.sendall((command + "\n").encode())
                     self.gui.update_monitor(f"Robot {robot_id}: Emergency stop sent")
                 except Exception as e:
                     print(f"Robot {robot_id}: Emergency stop error: {e}")
@@ -973,7 +995,8 @@ class Server:
                 p, i_val, d = self.pid_values[robot_id][i]
                 command = f"pid:{i} p:{p} i:{i_val} d:{d}"
                 sock = self.robot_connections[robot_id]
-                sock.sendall((command + "\n").encode())
+                with self.socket_locks.get(robot_id, threading.Lock()):
+                    sock.sendall((command + "\n").encode())
                 if self.log_tx_pid:
                     print(f"[TX pid] Robot {robot_id}: motor={i} P={p} I={i_val} D={d}")
         except Exception as e:

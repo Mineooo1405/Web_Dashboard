@@ -1,0 +1,4 @@
+_pycache_/
+logs/
+trajectory_logs/
+server_core/_pycache_/
