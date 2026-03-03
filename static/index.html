@@ -40,6 +40,7 @@
         <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
         <button class="tab-btn" data-tab="control">Control</button>
         <button class="tab-btn" data-tab="arm">Arm</button>
+        <button class="tab-btn" data-tab="analytics">Analytics</button>
         <button class="tab-btn" data-tab="connection">Connection</button>
         <button class="tab-btn" data-tab="settings">Settings</button>
     </nav>
@@ -258,12 +259,159 @@
         </div>
     </div>
 
+    <!-- ══════ TAB: Analytics ══════ -->
+    <div id="tab-analytics" class="tab-content">
+        <div class="analytics-layout">
+            <!-- Left: Log Viewer & Replay -->
+            <div class="analytics-left">
+                <!-- Log File Selector -->
+                <div class="card">
+                    <div class="card-header">
+                        <span>Log Viewer &amp; Replay</span>
+                        <button class="btn btn-ghost btn-sm" onclick="Analytics.refreshLogList()">Refresh</button>
+                    </div>
+                    <div class="form-row">
+                        <select id="log-file-select" class="input-sm" style="width:260px;text-align:left">
+                            <option value="">-- Select log file --</option>
+                        </select>
+                        <button class="btn btn-primary btn-sm" onclick="Analytics.loadSelectedLog()">Load</button>
+                    </div>
+                    <div id="log-file-info" class="text-muted" style="margin-top:6px"></div>
+                </div>
+
+                <!-- Replay Canvas -->
+                <div class="card">
+                    <div class="card-header">
+                        <span>Trajectory Replay</span>
+                        <div style="display:flex;gap:4px">
+                            <button class="btn btn-ghost btn-sm" onclick="Analytics.clearReplay()">Clear</button>
+                        </div>
+                    </div>
+                    <canvas id="replay-canvas" width="500" height="500"></canvas>
+                    <div class="replay-controls" id="replay-controls" style="display:none">
+                        <div class="form-row" style="margin-top:10px">
+                            <button class="btn btn-success btn-sm" id="replay-play-btn" onclick="Analytics.toggleReplay()">&#9654; Play</button>
+                            <button class="btn btn-ghost btn-sm" onclick="Analytics.resetReplay()">Reset</button>
+                            <label style="margin-left:8px">Speed:</label>
+                            <select id="replay-speed" class="input-sm" style="width:60px">
+                                <option value="0.5">0.5x</option>
+                                <option value="1" selected>1x</option>
+                                <option value="2">2x</option>
+                                <option value="5">5x</option>
+                                <option value="10">10x</option>
+                            </select>
+                        </div>
+                        <div class="form-row" style="margin-top:6px">
+                            <input type="range" id="replay-slider" min="0" max="100" value="0" style="flex:1" oninput="Analytics.seekReplay(this.value)">
+                            <span id="replay-time" class="text-muted" style="min-width:80px;text-align:right">0.0s / 0.0s</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Session Comparison -->
+                <div class="card">
+                    <div class="card-header">
+                        <span>Session Comparison</span>
+                        <button class="btn btn-ghost btn-sm" onclick="Analytics.clearComparison()">Clear All</button>
+                    </div>
+                    <div class="form-row">
+                        <select id="compare-file-select" class="input-sm" style="width:220px;text-align:left">
+                            <option value="">-- Select session --</option>
+                        </select>
+                        <button class="btn btn-primary btn-sm" onclick="Analytics.addComparison()">Add</button>
+                    </div>
+                    <div id="comparison-list" style="margin-top:8px"></div>
+                    <div id="comparison-table" style="margin-top:8px"></div>
+                </div>
+            </div>
+
+            <!-- Right: Charts & Metrics -->
+            <div class="analytics-right">
+                <!-- Performance Metrics -->
+                <div class="card">
+                    <div class="card-header">Performance Metrics</div>
+                    <div id="perf-metrics" class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-label">Total Distance</div>
+                            <div class="metric-value" id="metric-distance">--</div>
+                            <div class="metric-unit">m</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Avg Speed</div>
+                            <div class="metric-value" id="metric-avg-speed">--</div>
+                            <div class="metric-unit">m/s</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Max Speed</div>
+                            <div class="metric-value" id="metric-max-speed">--</div>
+                            <div class="metric-unit">m/s</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Duration</div>
+                            <div class="metric-value" id="metric-duration">--</div>
+                            <div class="metric-unit">s</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Path Efficiency</div>
+                            <div class="metric-value" id="metric-efficiency">--</div>
+                            <div class="metric-unit">%</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Data Points</div>
+                            <div class="metric-value" id="metric-points">--</div>
+                            <div class="metric-unit">pts</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Real-time Position Chart -->
+                <div class="card">
+                    <div class="card-header">
+                        <span>Position Over Time</span>
+                        <div style="display:flex;gap:4px">
+                            <button class="btn btn-ghost btn-sm" onclick="Analytics.clearPositionChart()">Clear</button>
+                        </div>
+                    </div>
+                    <div class="analytics-chart-wrap">
+                        <canvas id="position-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Velocity Chart -->
+                <div class="card">
+                    <div class="card-header">
+                        <span>Velocity Profile</span>
+                        <button class="btn btn-ghost btn-sm" onclick="Analytics.clearVelocityChart()">Clear</button>
+                    </div>
+                    <div class="analytics-chart-wrap">
+                        <canvas id="velocity-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- IMU Chart -->
+                <div class="card">
+                    <div class="card-header">
+                        <span>IMU Data</span>
+                        <div style="display:flex;gap:4px">
+                            <select id="imu-mode" class="input-sm" style="width:110px" onchange="Analytics.switchIMUMode()">
+                                <option value="heading">Heading</option>
+                                <option value="accel">Acceleration</option>
+                                <option value="gyro">Gyroscope</option>
+                            </select>
+                            <button class="btn btn-ghost btn-sm" onclick="Analytics.clearIMUChart()">Clear</button>
+                        </div>
+                    </div>
+                    <div class="analytics-chart-wrap">
+                        <canvas id="imu-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- ══════ TAB 4: Connection ══════ -->
     <div id="tab-connection" class="tab-content">
         <div id="connection-panels"></div>
-        <div class="form-row mt-sm">
-            <button class="btn btn-danger" onclick="disconnectAll()">Disconnect</button>
-        </div>
     </div>
 
     <!-- ══════ TAB 5: Settings ══════ -->
@@ -339,6 +487,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="/static/js/analytics.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 

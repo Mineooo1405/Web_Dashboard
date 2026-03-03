@@ -37,6 +37,9 @@ let rpmDirty = false;
 let rpmThrottleTimer = null;
 const RPM_THROTTLE_MS = 150;
 
+// Analytics start time
+let analyticsStartTime = Date.now();
+
 // ============================================================
 // Theme
 // ============================================================
@@ -138,6 +141,11 @@ function handleMessage(msg) {
             break;
         case 'heading':
             updateHeading(msg.robot_id, msg.value);
+            // Feed analytics IMU heading
+            if (typeof Analytics !== 'undefined') {
+                const t = (Date.now() - analyticsStartTime) / 1000;
+                Analytics.pushIMUData(t, msg.value, 0, 0);
+            }
             break;
         case 'calibration':
             updateCalibration(msg.robot_id, msg.calibrated);
@@ -222,6 +230,11 @@ function handleVizUpdate(method, args) {
                 if (vizState.trajectories[rid].length > 2000)
                     vizState.trajectories[rid] = vizState.trajectories[rid].slice(-1500);
                 updateSensorCard(rid, 'ekf', { x, y });
+                // Feed analytics
+                if (typeof Analytics !== 'undefined') {
+                    const t = (Date.now() - analyticsStartTime) / 1000;
+                    Analytics.pushPositionData(t, x, y);
+                }
                 requestRedraw();
                 break;
             }
@@ -237,6 +250,11 @@ function handleVizUpdate(method, args) {
                 const [rid, x, y, vx, vy] = args;
                 vizState.bno055[rid] = [x, y, vx, vy];
                 updateSensorCard(rid, 'bno055', { x, y, vx, vy });
+                // Feed analytics velocity + IMU
+                if (typeof Analytics !== 'undefined') {
+                    const t = (Date.now() - analyticsStartTime) / 1000;
+                    Analytics.pushVelocityData(t, vx, vy);
+                }
                 break;
             }
         case 'update_odometry':
@@ -1097,6 +1115,10 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
         btn.classList.add('active');
         document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+        // Lazy-init analytics charts when tab first opens
+        if (btn.dataset.tab === 'analytics' && typeof Analytics !== 'undefined') {
+            Analytics.onTabActivated();
+        }
     });
 });
 
@@ -1180,6 +1202,8 @@ function updateChartTheme() {
     rpmChart.options.scales.y.grid.color = cc.grid;
     rpmChart.options.plugins.legend.labels.color = cc.label;
     rpmChart.update('none');
+    // Update analytics charts theme
+    if (typeof Analytics !== 'undefined') Analytics.updateChartsTheme();
 }
 
 // ============================================================
@@ -1213,6 +1237,11 @@ window.addEventListener('DOMContentLoaded', () => {
     buildMotorGrid();
     buildPIDGrid();
     initRPMChart();
+    // Initialize analytics module
+    if (typeof Analytics !== 'undefined') {
+        Analytics.init();
+        analyticsStartTime = Date.now();
+    }
     connectWS();
     requestRedraw();
     mapLoop();

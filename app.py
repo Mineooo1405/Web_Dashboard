@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 import uvicorn
 
 from web_gui import WebGUI
@@ -139,7 +139,14 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 @app.get("/")
 async def root():
-    return FileResponse(os.path.join(static_dir, "index.html"))
+    return FileResponse(
+        os.path.join(static_dir, "index.html"),
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        }
+    )
 
 
 # ============================================================
@@ -378,6 +385,33 @@ async def get_profiles():
             'Robot 1': {'host': '192.168.1.211', 'port': 2004},
         }
     return profiles
+
+
+# ============================================================
+# Analytics API — Log file access
+# ============================================================
+@app.get("/api/logs")
+async def list_logs():
+    """List all CSV log files in the logs/ directory"""
+    log_dir = os.path.join(os.path.dirname(__file__), 'logs')
+    if not os.path.isdir(log_dir):
+        return []
+    files = [f for f in os.listdir(log_dir) if f.endswith('.csv')]
+    files.sort(reverse=True)
+    return files
+
+
+@app.get("/api/logs/{filename}")
+async def get_log(filename: str):
+    """Return the raw content of a log CSV file"""
+    log_dir = os.path.join(os.path.dirname(__file__), 'logs')
+    filepath = os.path.join(log_dir, filename)
+    # Security: ensure the file is inside the logs directory
+    if not os.path.realpath(filepath).startswith(os.path.realpath(log_dir)):
+        return PlainTextResponse("Forbidden", status_code=403)
+    if not os.path.isfile(filepath):
+        return PlainTextResponse("Not found", status_code=404)
+    return FileResponse(filepath, media_type='text/csv')
 
 
 # ============================================================
