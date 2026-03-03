@@ -42,8 +42,7 @@ class FormationPlanner:
     }
     
     DEFAULT_ANGLES_2 = {
-        1: 90.0,    # Top
-        2: 270.0    # Bottom
+        1: 270.0,    # Top
     }
     
     def __init__(self, num_robots: int = 1, grip_radius: float = 0.4):
@@ -91,7 +90,7 @@ class FormationPlanner:
             self.robot_angles = self.DEFAULT_ANGLES_2.copy()
         else:
             # Single robot: position at 90° (top)
-            self.robot_angles = {1: 90.0}
+            self.robot_angles = {1: 270.0}
         
         # Reset active robots to all
         self.active_robots = set(self.robot_angles.keys())
