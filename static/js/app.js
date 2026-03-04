@@ -1119,6 +1119,10 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
         if (btn.dataset.tab === 'analytics' && typeof Analytics !== 'undefined') {
             Analytics.onTabActivated();
         }
+        // Init arm simulator canvas when arm tab opens
+        if (btn.dataset.tab === 'arm' && typeof ArmViz !== 'undefined') {
+            ArmViz.onTabActivated();
+        }
     });
 });
 
@@ -1241,6 +1245,10 @@ window.addEventListener('DOMContentLoaded', () => {
     if (typeof Analytics !== 'undefined') {
         Analytics.init();
         analyticsStartTime = Date.now();
+    }
+    // Initialize arm simulator (loads robot config)
+    if (typeof ArmViz !== 'undefined') {
+        ArmViz.init();
     }
     connectWS();
     requestRedraw();

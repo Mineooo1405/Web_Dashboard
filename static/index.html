@@ -212,52 +212,114 @@
         <div class="robot-tabs">
             <button class="robot-tab-btn active" data-robot="1" onclick="selectArmTab(1)">Robot 1</button>
         </div>
-        <div class="arm-layout">
-            <div class="card">
-                <div class="card-header">Inverse Kinematics (mm)</div>
-                <div class="form-row">
-                    <label>X:</label><input type="number" id="arm-x" value="100" class="input-sm">
-                    <label>Y:</label><input type="number" id="arm-y" value="0" class="input-sm">
-                    <label>Z:</label><input type="number" id="arm-z" value="50" class="input-sm">
-                    <label>Pitch:</label><input type="number" id="arm-pitch" value="0" class="input-sm">
-                    <button class="btn btn-primary" onclick="sendArmIK()">Solve</button>
+
+        <!-- ══ 3-column arm layout ══ -->
+        <div class="arm-tab-layout">
+
+            <!-- Col 1: Robot Control -->
+            <div class="arm-col-control">
+                <div class="card">
+                    <div class="card-header">IK → Hardware</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px">
+                        <label class="sim-field">X<input type="number" id="arm-x" value="100" class="input-sm"></label>
+                        <label class="sim-field">Y<input type="number" id="arm-y" value="0"   class="input-sm"></label>
+                        <label class="sim-field">Z<input type="number" id="arm-z" value="50"  class="input-sm"></label>
+                        <label class="sim-field">Pitch<input type="number" id="arm-pitch" value="0" class="input-sm"></label>
+                    </div>
+                    <button class="btn btn-primary btn-sm" style="margin-top:8px;width:100%" onclick="sendArmIK()">Solve &amp; Send</button>
+                </div>
+                <div class="card">
+                    <div class="card-header">Servo Angles (°)</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:6px">
+                        <label class="sim-field">J0<input type="number" id="arm-j0" value="90" class="input-sm"></label>
+                        <label class="sim-field">J1<input type="number" id="arm-j1" value="90" class="input-sm"></label>
+                        <label class="sim-field">J2<input type="number" id="arm-j2" value="90" class="input-sm"></label>
+                        <label class="sim-field">J3<input type="number" id="arm-j3" value="90" class="input-sm"></label>
+                        <label class="sim-field">J4<input type="number" id="arm-j4" value="90" class="input-sm"></label>
+                        <label class="sim-field">J5<input type="number" id="arm-j5" value="90" class="input-sm"></label>
+                    </div>
+                    <button class="btn btn-primary btn-sm" style="margin-top:8px;width:100%" onclick="sendArmServo()">Send Servos</button>
+                </div>
+                <div class="card">
+                    <div class="card-header">Commands</div>
+                    <div class="btn-grid">
+                        <button class="btn btn-success"  onclick="sendArmPick()">Pick</button>
+                        <button class="btn btn-primary"  onclick="sendArmPlace()">Place</button>
+                        <button class="btn btn-ghost"    onclick="sendArmGripper('open')">Gripper Open</button>
+                        <button class="btn btn-ghost"    onclick="sendArmGripper('close')">Gripper Close</button>
+                        <button class="btn btn-warning"  onclick="sendArmRest()">Rest</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">IK Result</div>
+                    <div id="arm-result" class="arm-result">
+                        <span class="joint-val" id="res-j0">J0: --</span>
+                        <span class="joint-val" id="res-j1">J1: --</span>
+                        <span class="joint-val" id="res-j2">J2: --</span>
+                        <span class="joint-val" id="res-j3">J3: --</span>
+                        <span class="joint-val" id="res-j4">J4: --</span>
+                        <span class="joint-val" id="res-j5">J5: --</span>
+                    </div>
                 </div>
             </div>
-            <div class="card">
-                <div class="card-header">Servo Angles (&deg;)</div>
-                <div class="form-row wrap">
-                    <span><label>J0:</label><input type="number" id="arm-j0" value="90" class="input-xs"></span>
-                    <span><label>J1:</label><input type="number" id="arm-j1" value="90" class="input-xs"></span>
-                    <span><label>J2:</label><input type="number" id="arm-j2" value="90" class="input-xs"></span>
-                    <span><label>J3:</label><input type="number" id="arm-j3" value="90" class="input-xs"></span>
-                    <span><label>J4:</label><input type="number" id="arm-j4" value="90" class="input-xs"></span>
-                    <span><label>J5:</label><input type="number" id="arm-j5" value="90" class="input-xs"></span>
-                    <button class="btn btn-primary" onclick="sendArmServo()">Send</button>
+
+            <!-- Col 2: Arm Simulator -->
+            <div class="arm-col-sim">
+                <div class="card">
+                    <div class="card-header" style="margin-bottom:8px">Arm Simulator</div>
+                    <div class="form-row" style="gap:6px">
+                        <button class="btn btn-primary btn-sm active" onclick="ArmViz.setMode('ik')" id="arm-sim-btn-ik">IK Mode</button>
+                        <button class="btn btn-ghost   btn-sm"        onclick="ArmViz.setMode('fk')" id="arm-sim-btn-fk">FK Mode</button>
+                    </div>
+                    <div id="arm-sim-ik-row" style="margin-top:10px">
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                            <label class="sim-field">X (mm)<input type="number" id="arm-sim-x"   value="0"   class="input-sm"></label>
+                            <label class="sim-field">Y (mm)<input type="number" id="arm-sim-y"   value="180" class="input-sm"></label>
+                            <label class="sim-field">Z (mm)<input type="number" id="arm-sim-z"   value="-50" class="input-sm"></label>
+                            <label class="sim-field">Phi°  <input type="number" id="arm-sim-phi" value="-90" class="input-sm"></label>
+                        </div>
+                        <button class="btn btn-success btn-sm" style="margin-top:8px;width:100%" onclick="ArmViz.solveIK()">Solve IK</button>
+                    </div>
+                    <div id="arm-sim-fk-row" style="margin-top:10px;display:none">
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                            <label class="sim-field">J0°<input type="number" id="arm-sim-j0" value="90" class="input-sm"></label>
+                            <label class="sim-field">J1°<input type="number" id="arm-sim-j1" value="90" class="input-sm"></label>
+                            <label class="sim-field">J2°<input type="number" id="arm-sim-j2" value="90" class="input-sm"></label>
+                            <label class="sim-field">J3°<input type="number" id="arm-sim-j3" value="90" class="input-sm"></label>
+                        </div>
+                        <button class="btn btn-success btn-sm" style="margin-top:8px;width:100%" onclick="ArmViz.solveFK()">Solve FK</button>
+                        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">
+                            <button class="btn btn-ghost btn-xs" onclick="ArmViz.setPreset('home')">Home</button>
+                            <button class="btn btn-ghost btn-xs" onclick="ArmViz.setPreset('forward')">Forward</button>
+                            <button class="btn btn-ghost btn-xs" onclick="ArmViz.setPreset('up')">Up</button>
+                            <button class="btn btn-ghost btn-xs" onclick="ArmViz.setPreset('down')">Down</button>
+                            <button class="btn btn-ghost btn-xs" onclick="ArmViz.setPreset('stretch')">Stretch</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">Result<span id="arm-sim-status" class="text-muted" style="font-size:11px;margin-left:8px"></span></div>
+                    <pre id="arm-sim-result" class="arm-sim-pre">—</pre>
+                </div>
+                <div class="card">
+                    <div class="card-header">Inclinometer</div>
+                    <pre id="arm-incl-text" class="arm-sim-pre" style="font-size:11px">—</pre>
                 </div>
             </div>
-            <div class="card">
-                <div class="card-header">Commands</div>
-                <div class="btn-grid">
-                    <button class="btn btn-success" onclick="sendArmPick()">Pick</button>
-                    <button class="btn btn-primary" onclick="sendArmPlace()">Place</button>
-                    <button class="btn btn-ghost" onclick="sendArmGripper('open')">Gripper Open</button>
-                    <button class="btn btn-ghost" onclick="sendArmGripper('close')">Gripper Close</button>
-                    <button class="btn btn-warning" onclick="sendArmRest()">Rest</button>
+
+            <!-- Col 3: Canvas (square) -->
+            <div class="arm-col-canvas">
+                <div class="card">
+                    <div class="card-header">R-Z Workspace Visualizer</div>
+                    <div class="arm-canvas-wrap">
+                        <canvas id="arm-canvas"></canvas>
+                    </div>
                 </div>
             </div>
-            <div class="card">
-                <div class="card-header">IK Result</div>
-                <div id="arm-result" class="arm-result">
-                    <span class="joint-val" id="res-j0">J0: --</span>
-                    <span class="joint-val" id="res-j1">J1: --</span>
-                    <span class="joint-val" id="res-j2">J2: --</span>
-                    <span class="joint-val" id="res-j3">J3: --</span>
-                    <span class="joint-val" id="res-j4">J4: --</span>
-                    <span class="joint-val" id="res-j5">J5: --</span>
-                </div>
-            </div>
+
         </div>
     </div>
+
 
     <!-- ══════ TAB: Analytics ══════ -->
     <div id="tab-analytics" class="tab-content">
@@ -489,6 +551,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="/static/js/analytics.js"></script>
+    <script src="/static/js/arm_viz.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 
