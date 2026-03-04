@@ -365,11 +365,50 @@ class TransportManager:
             self.server.gui.update_monitor(
                 "=== ALL ROBOTS COMPLETED TRANSPORT - PHASE 2 FINISHED ==="
             )
-            
+
+            # Send execute_place to all robots
+            self._send_place_command()
+
             # Update GUI
             if hasattr(self.server.gui, 'update_phase2_status'):
                 self.server.gui.update_phase2_status("Complete", completed=True)
     
+    def _send_place_command(self):
+        """Send execute_place to all transport robots using the same grip_side from Phase 1."""
+        server = self.server
+        robots = list(self.transport_arrived_status.keys())
+        if not robots:
+            return
+
+        sync_place_time = time.time() + server.execution_time_offset
+        grip_sides = getattr(server.approach_manager, 'grip_sides', {})
+
+        success_count = 0
+        for robot_id in robots:
+            if robot_id not in server.robot_connections:
+                continue
+            place_cmd = {
+                "type": "control",
+                "cmd": "execute_place",
+                "time": sync_place_time,
+                "object_pos": list(self.destination_position) if self.destination_position else list(server.object_position),
+                "object_size": [server.object_length, server.object_width],
+                "grip_side": grip_sides.get(robot_id, "unknown"),
+            }
+            try:
+                server.send_command_to_robot(robot_id, json.dumps(place_cmd))
+                success_count += 1
+                server.gui.update_monitor(
+                    f"Robot {robot_id}: Place command sent (side={grip_sides.get(robot_id)}, at {sync_place_time:.3f})"
+                )
+            except Exception as e:
+                server.gui.update_monitor(f"Robot {robot_id}: Failed to send place command: {e}")
+
+        if success_count > 0:
+            server.gui.update_monitor(
+                f"=== SYNCHRONIZED PLACE COMMAND SENT TO {success_count} ROBOTS ==="
+            )
+
     def abort_transport_phase(self):
         """
         Abort the current transport phase and stop all robots.
