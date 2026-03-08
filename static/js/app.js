@@ -8,7 +8,7 @@ let selectedRobot = 1;
 let selectedArmRobot = 1;
 let kbActive = false;
 let activeKeys = new Set();
-const ROBOT_IDS = [1, 2, 3];
+const ROBOT_IDS = [1];
 const ROBOT_COLORS = { 1: '#f06565', 2: '#34d399', 3: '#60a5fa' };
 
 // Viz state (mirrors server)
@@ -36,6 +36,9 @@ const RPM_MAX_POINTS = 200;
 let rpmDirty = false;
 let rpmThrottleTimer = null;
 const RPM_THROTTLE_MS = 150;
+
+// Analytics start time
+let analyticsStartTime = Date.now();
 
 // ============================================================
 // Theme
@@ -138,6 +141,11 @@ function handleMessage(msg) {
             break;
         case 'heading':
             updateHeading(msg.robot_id, msg.value);
+            // Feed analytics IMU heading
+            if (typeof Analytics !== 'undefined') {
+                const t = (Date.now() - analyticsStartTime) / 1000;
+                Analytics.pushIMUData(t, msg.value, 0, 0);
+            }
             break;
         case 'calibration':
             updateCalibration(msg.robot_id, msg.calibrated);
@@ -213,6 +221,7 @@ function handleVizFullState(state) {
 // ============================================================
 function handleVizUpdate(method, args) {
     switch (method) {
+<<<<<<< HEAD
         case 'update_position': {
             const [rid, x, y, theta] = args;
             vizState.positions[rid] = [x, y, theta];
@@ -248,6 +257,58 @@ function handleVizUpdate(method, args) {
             updateSensorCard(rid, 'loc', { x, y });
             break;
         }
+=======
+        case 'update_position':
+            {
+                const [rid, x, y, theta] = args;
+                vizState.positions[rid] = [x, y, theta];
+                if (!vizState.trajectories[rid]) vizState.trajectories[rid] = [];
+                vizState.trajectories[rid].push([x, y]);
+                if (vizState.trajectories[rid].length > 2000)
+                    vizState.trajectories[rid] = vizState.trajectories[rid].slice(-1500);
+                updateSensorCard(rid, 'ekf', { x, y });
+                // Feed analytics
+                if (typeof Analytics !== 'undefined') {
+                    const t = (Date.now() - analyticsStartTime) / 1000;
+                    Analytics.pushPositionData(t, x, y);
+                }
+                requestRedraw();
+                break;
+            }
+        case 'update_ekf':
+            {
+                const [rid, x, y] = args;
+                vizState.ekf[rid] = [x, y];
+                updateSensorCard(rid, 'ekf', { x, y });
+                break;
+            }
+        case 'update_bno055':
+            {
+                const [rid, x, y, vx, vy] = args;
+                vizState.bno055[rid] = [x, y, vx, vy];
+                updateSensorCard(rid, 'bno055', { x, y, vx, vy });
+                // Feed analytics velocity + IMU
+                if (typeof Analytics !== 'undefined') {
+                    const t = (Date.now() - analyticsStartTime) / 1000;
+                    Analytics.pushVelocityData(t, vx, vy);
+                }
+                break;
+            }
+        case 'update_odometry':
+            {
+                const [rid, x, y, vx, vy] = args;
+                vizState.odometry[rid] = [x, y, vx, vy];
+                updateSensorCard(rid, 'odo', { x, y, vx, vy });
+                break;
+            }
+        case 'update_localization':
+            {
+                const [rid, x, y] = args;
+                vizState.localization[rid] = [x, y];
+                updateSensorCard(rid, 'loc', { x, y });
+                break;
+            }
+>>>>>>> 492b6c69692458e46862f9dc26b172ffac037434
         case 'set_object_position':
             vizState.object = args;
             requestRedraw();
@@ -292,12 +353,13 @@ let mapNeedsRedraw = false;
 function requestRedraw() { mapNeedsRedraw = true; }
 
 function worldToCanvas(x, y, canvas) {
-    const w = canvas.width, h = canvas.height;
+    const w = canvas.width,
+        h = canvas.height;
     const sx = w / (MAP_RANGE.xMax - MAP_RANGE.xMin);
     const sy = h / (MAP_RANGE.yMax - MAP_RANGE.yMin);
     return [
         (x - MAP_RANGE.xMin) * sx,
-        h - (y - MAP_RANGE.yMin) * sy  // flip Y
+        h - (y - MAP_RANGE.yMin) * sy // flip Y
     ];
 }
 
@@ -305,7 +367,12 @@ function drawMap() {
     const canvas = document.getElementById('map-canvas');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
+<<<<<<< HEAD
     const w = canvas.width, h = canvas.height;
+=======
+    const w = canvas.width,
+        h = canvas.height;
+>>>>>>> 492b6c69692458e46862f9dc26b172ffac037434
 
     // Theme-aware colors
     const gridColor = cssVar('--map-grid');
@@ -320,11 +387,17 @@ function drawMap() {
     const gridSize = 0.5;
     for (let gx = Math.ceil(MAP_RANGE.xMin / gridSize) * gridSize; gx <= MAP_RANGE.xMax; gx += gridSize) {
         const [px] = worldToCanvas(gx, 0, canvas);
-        ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, h); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, h);
+        ctx.stroke();
     }
     for (let gy = Math.ceil(MAP_RANGE.yMin / gridSize) * gridSize; gy <= MAP_RANGE.yMax; gy += gridSize) {
         const [, py] = worldToCanvas(0, gy, canvas);
-        ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(w, py); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, py);
+        ctx.lineTo(w, py);
+        ctx.stroke();
     }
 
     // Axes labels
@@ -349,7 +422,10 @@ function drawMap() {
             ctx.fillStyle = obsColor;
             ctx.strokeStyle = obsStroke;
             ctx.lineWidth = 1.5;
-            ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
         } else if (obs.type === 'rectangle') {
             const [x1, y1] = worldToCanvas(obs.x1, obs.y2, canvas);
             const [x2, y2] = worldToCanvas(obs.x2, obs.y1, canvas);
@@ -366,7 +442,8 @@ function drawMap() {
         const [ox, oy, ol, ow_] = vizState.object;
         const [cx, cy] = worldToCanvas(ox, oy, canvas);
         const scale = w / (MAP_RANGE.xMax - MAP_RANGE.xMin);
-        const rw = ol * scale, rh = ow_ * scale;
+        const rw = ol * scale,
+            rh = ow_ * scale;
         ctx.fillStyle = isDark ? 'rgba(251,191,36,0.3)' : 'rgba(230,140,0,0.2)';
         ctx.strokeStyle = '#fbbf24';
         ctx.lineWidth = 2;
@@ -384,15 +461,28 @@ function drawMap() {
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         // Draw X marker
+<<<<<<< HEAD
         ctx.beginPath(); ctx.moveTo(gx - 6, gy - 6); ctx.lineTo(gx + 6, gy + 6); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(gx + 6, gy - 6); ctx.lineTo(gx - 6, gy + 6); ctx.stroke();
+=======
+        ctx.beginPath();
+        ctx.moveTo(gx - 6, gy - 6);
+        ctx.lineTo(gx + 6, gy + 6);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(gx + 6, gy - 6);
+        ctx.lineTo(gx - 6, gy + 6);
+        ctx.stroke();
+>>>>>>> 492b6c69692458e46862f9dc26b172ffac037434
     }
 
     // Destination
     if (vizState.destination) {
         const [dx, dy] = worldToCanvas(vizState.destination[0], vizState.destination[1], canvas);
         ctx.fillStyle = '#a855f7';
-        ctx.beginPath(); ctx.arc(dx, dy, 7, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath();
+        ctx.arc(dx, dy, 7, 0, Math.PI * 2);
+        ctx.fill();
         ctx.fillStyle = isDark ? '#c084fc' : '#7c3aed';
         ctx.font = '600 11px Inter, sans-serif';
         ctx.fillText('DEST', dx + 10, dy + 4);
@@ -406,7 +496,9 @@ function drawMap() {
         ctx.strokeStyle = isDark ? 'rgba(100,200,255,0.3)' : 'rgba(60,130,200,0.3)';
         ctx.lineWidth = 1;
         ctx.setLineDash([5, 5]);
-        ctx.beginPath(); ctx.arc(cx, cy, fr * scale, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(cx, cy, fr * scale, 0, Math.PI * 2);
+        ctx.stroke();
         ctx.setLineDash([]);
     }
 
@@ -419,7 +511,8 @@ function drawMap() {
         for (let i = 0; i < vizState.centroid_path.length; i++) {
             const p = vizState.centroid_path[i];
             const [px, py] = worldToCanvas(p[0], p[1], canvas);
-            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
         }
         ctx.stroke();
         ctx.setLineDash([]);
@@ -435,7 +528,8 @@ function drawMap() {
         ctx.beginPath();
         for (let i = 0; i < path.length; i++) {
             const [px, py] = worldToCanvas(path[i][0], path[i][1], canvas);
-            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
         }
         ctx.stroke();
         ctx.setLineDash([]);
@@ -452,7 +546,8 @@ function drawMap() {
         const start = Math.max(0, pts.length - 500);
         for (let i = start; i < pts.length; i++) {
             const [px, py] = worldToCanvas(pts[i][0], pts[i][1], canvas);
-            if (i === start) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            if (i === start) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
         }
         ctx.stroke();
         ctx.globalAlpha = 1;
@@ -470,7 +565,14 @@ function drawMap() {
         ctx.fillStyle = color + '40';
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
+<<<<<<< HEAD
         ctx.beginPath(); ctx.arc(cx, cy, robotR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+=======
+        ctx.beginPath();
+        ctx.arc(cx, cy, robotR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+>>>>>>> 492b6c69692458e46862f9dc26b172ffac037434
 
         // Direction arrow
         const arrowLen = robotR * 1.3;
@@ -478,7 +580,14 @@ function drawMap() {
         const ay = cy + arrowLen * Math.sin(-theta + Math.PI / 2);
         ctx.strokeStyle = color;
         ctx.lineWidth = 2.5;
+<<<<<<< HEAD
         ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ax, ay); ctx.stroke();
+=======
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(ax, ay);
+        ctx.stroke();
+>>>>>>> 492b6c69692458e46862f9dc26b172ffac037434
 
         // Arrow head
         const headLen = 6;
@@ -726,7 +835,10 @@ function clearObstacles() {
 function startApproach() {
     ROBOT_IDS.forEach(rid => {
         const el = document.getElementById(`arrival-${rid}`);
-        if (el) { el.textContent = `R${rid}: In Progress`; el.className = 'arrival-badge in-progress'; }
+        if (el) {
+            el.textContent = `R${rid}: In Progress`;
+            el.className = 'arrival-badge in-progress';
+        }
     });
     sendAction({ action: 'start_approach', use_vector_field: true });
 }
@@ -735,7 +847,10 @@ function abortApproach() {
     sendAction({ action: 'abort_approach' });
     ROBOT_IDS.forEach(rid => {
         const el = document.getElementById(`arrival-${rid}`);
-        if (el) { el.textContent = `R${rid}: Aborted`; el.className = 'arrival-badge aborted'; }
+        if (el) {
+            el.textContent = `R${rid}: Aborted`;
+            el.className = 'arrival-badge aborted';
+        }
     });
 }
 
@@ -832,7 +947,9 @@ function setMotorSpeed(motor) {
 
 function setPIDMotor(motor) {
     sendAction({
-        action: 'set_pid', robot_id: selectedRobot, motor,
+        action: 'set_pid',
+        robot_id: selectedRobot,
+        motor,
         p: parseFloat(document.getElementById(`pid-p-${motor}`).value),
         i: parseFloat(document.getElementById(`pid-i-${motor}`).value),
         d: parseFloat(document.getElementById(`pid-d-${motor}`).value)
@@ -840,11 +957,15 @@ function setPIDMotor(motor) {
 }
 
 function savePID() { sendAction({ action: 'save_pid', robot_id: selectedRobot }); }
+
 function loadPID() { sendAction({ action: 'load_pid', robot_id: selectedRobot }); }
 
 function emergencyStop() { sendAction({ action: 'emergency_stop', robot_id: selectedRobot }); }
+
 function resetESP() { sendAction({ action: 'send_command', robot_id: selectedRobot, command: 'reset' }); }
+
 function runTestSquare() { sendAction({ action: 'test_trajectory', robot_id: selectedRobot, shape: 'square' }); }
+
 function runTestCircle() { sendAction({ action: 'test_trajectory', robot_id: selectedRobot, shape: 'circle' }); }
 
 // ============================================================
@@ -859,7 +980,8 @@ function selectArmTab(rid) {
 
 function sendArmIK() {
     sendAction({
-        action: 'arm_ik', robot_id: selectedArmRobot,
+        action: 'arm_ik',
+        robot_id: selectedArmRobot,
         x: parseFloat(document.getElementById('arm-x').value),
         y: parseFloat(document.getElementById('arm-y').value),
         z: parseFloat(document.getElementById('arm-z').value),
@@ -875,7 +997,8 @@ function sendArmServo() {
 
 function sendArmPick() {
     sendAction({
-        action: 'arm_pick', robot_id: selectedArmRobot,
+        action: 'arm_pick',
+        robot_id: selectedArmRobot,
         x: parseFloat(document.getElementById('arm-x').value),
         y: parseFloat(document.getElementById('arm-y').value),
         z: parseFloat(document.getElementById('arm-z').value)
@@ -884,7 +1007,8 @@ function sendArmPick() {
 
 function sendArmPlace() {
     sendAction({
-        action: 'arm_place', robot_id: selectedArmRobot,
+        action: 'arm_place',
+        robot_id: selectedArmRobot,
         x: parseFloat(document.getElementById('arm-x').value),
         y: parseFloat(document.getElementById('arm-y').value),
         z: parseFloat(document.getElementById('arm-z').value)
@@ -926,7 +1050,8 @@ function buildConnectionPanels() {
 
 function connectRobot(rid) {
     sendAction({
-        action: 'connect', robot_id: rid,
+        action: 'connect',
+        robot_id: rid,
         host: document.getElementById(`conn-host-${rid}`).value,
         port: parseInt(document.getElementById(`conn-port-${rid}`).value)
     });
@@ -982,7 +1107,13 @@ function closeKeyboardControl() {
 function handleKeyboard() {
     if (!kbActive) return;
     const speed = parseFloat(document.getElementById('kb-speed').value);
+<<<<<<< HEAD
     let dx = 0, dy = 0, dtheta = 0;
+=======
+    let dx = 0,
+        dy = 0,
+        dtheta = 0;
+>>>>>>> 492b6c69692458e46862f9dc26b172ffac037434
 
     if (activeKeys.has('w')) dy = speed;
     if (activeKeys.has('s')) dy = -speed;
@@ -1043,6 +1174,14 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
         btn.classList.add('active');
         document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+        // Lazy-init analytics charts when tab first opens
+        if (btn.dataset.tab === 'analytics' && typeof Analytics !== 'undefined') {
+            Analytics.onTabActivated();
+        }
+        // Init arm simulator canvas when arm tab opens
+        if (btn.dataset.tab === 'arm' && typeof ArmViz !== 'undefined') {
+            ArmViz.onTabActivated();
+        }
     });
 });
 
@@ -1126,6 +1265,8 @@ function updateChartTheme() {
     rpmChart.options.scales.y.grid.color = cc.grid;
     rpmChart.options.plugins.legend.labels.color = cc.label;
     rpmChart.update('none');
+    // Update analytics charts theme
+    if (typeof Analytics !== 'undefined') Analytics.updateChartsTheme();
 }
 
 // ============================================================
@@ -1159,6 +1300,15 @@ window.addEventListener('DOMContentLoaded', () => {
     buildMotorGrid();
     buildPIDGrid();
     initRPMChart();
+    // Initialize analytics module
+    if (typeof Analytics !== 'undefined') {
+        Analytics.init();
+        analyticsStartTime = Date.now();
+    }
+    // Initialize arm simulator (loads robot config)
+    if (typeof ArmViz !== 'undefined') {
+        ArmViz.init();
+    }
     connectWS();
     requestRedraw();
     mapLoop();

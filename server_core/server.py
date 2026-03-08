@@ -45,7 +45,7 @@ class Server:
         # Setup visualizer (can be provided by GUI adapter via gui.visualizer)
         self.visualizer = getattr(gui, 'visualizer', None) or _NullVisualizer()
         
-        # Multi-robot state - all indexed by robot_id (1, 2, 3)
+        # Single robot state - all indexed by robot_id
         self.robot_connections = {}  # {robot_id: socket}
         self.robot_threads = {}      # {robot_id: thread}
         self.socket_locks = {}       # {robot_id: threading.Lock} - prevent race condition
@@ -64,8 +64,8 @@ class Server:
         self.robot_paths = {}        # {robot_id: [(x, y), ...]}
         self.robot_path_index = {}   # {robot_id: current_waypoint_index}
         
-        # Initialize state for 3 robots
-        for robot_id in [1, 2, 3]:
+        # Initialize state for 1 robot
+        for robot_id in [1]:
             self.speed[robot_id] = [0, 0, 0, 0]
             self.encoders[robot_id] = [0, 0, 0, 0]
             self.bno055_heading[robot_id] = 0.0
@@ -129,7 +129,7 @@ class Server:
         self.path_planner = get_path_planner(x_range=(-2.0, 15.0), 
                                              y_range=(-2.0, 15.0), 
                                              cell_size=0.05)
-        self.formation_planner = FormationPlanner(num_robots=3, grip_radius=self.calculated_grip_radius)
+        self.formation_planner = FormationPlanner(num_robots=1, grip_radius=self.calculated_grip_radius)
 
         
         # Robot positions from EKF (updated automatically)
@@ -241,43 +241,57 @@ class Server:
         self._close_sync_log_file()
 
     # Log file management per robot
+    # File naming: robot{id}_{YYYYMMDD_HHMMSS}_{type}.csv
+    _LOG_TYPE_NAME = {
+        "bno055":   "imu",
+        "log":      "monitor",
+        "encoder":  "encoder",
+        "position": "position",
+        "pid":      "pid",
+    }
+
     def setup_log_file(self, robot_id, data_type):
         if not self.log_data:
             return
-            
+
         if not hasattr(self, 'common_start_time') or not self.log_files:
             self.common_start_time = time.time()
-        
+
         log_key = (robot_id, data_type)
         if log_key in self.log_files:
             return
-                
+
         log_dir = "logs"
         os.makedirs(log_dir, exist_ok=True)
         session_id = time.strftime('%Y%m%d_%H%M%S', time.localtime(self.common_start_time))
-        log_filename = f"{log_dir}/robot{robot_id}_{data_type}_log_{session_id}.csv"
-        
+        clean_name = self._LOG_TYPE_NAME.get(data_type, data_type)
+        log_filename = f"{log_dir}/robot{robot_id}_{session_id}_{clean_name}.csv"
+
         self.log_files[log_key] = open(log_filename, "w", newline='')
         self.log_writers[log_key] = csv.writer(self.log_files[log_key])
-        
+
         if data_type == "encoder":
             self.log_writers[log_key].writerow(["time", "motor1", "motor2", "motor3", "motor4"])
         elif data_type == "bno055":
             self.log_writers[log_key].writerow([
-                "time", "heading", "roll", "pitch", "accel_x", "accel_y", "accel_z",
-                "gyro_x", "gyro_y", "gyro_z", "mag_x", "mag_y", "mag_z",
-                "quat_w", "quat_x", "quat_y", "quat_z", "linear_accel_x", 
-                "linear_accel_y", "linear_accel_z", "gravity_x", "gravity_y", "gravity_z",
+                "time", "heading", "roll", "pitch",
+                "accel_x", "accel_y", "accel_z",
+                "gyro_x", "gyro_y", "gyro_z",
+                "mag_x", "mag_y", "mag_z",
+                "quat_w", "quat_x", "quat_y", "quat_z",
+                "linear_accel_x", "linear_accel_y", "linear_accel_z",
+                "gravity_x", "gravity_y", "gravity_z",
                 "sys_cal", "gyro_cal", "accel_cal", "mag_cal"
             ])
         elif data_type == "log":
             self.log_writers[log_key].writerow(["time", "message"])
         elif data_type == "position":
-            self.log_writers[log_key].writerow(["time", "x", "y", "theta", "vx", "vy"])
+            # 'source' is explicit in header so analytics can parse without guessing
+            self.log_writers[log_key].writerow(["time", "source", "x", "y", "theta", "vx", "vy"])
         elif data_type == "pid":
             self.log_writers[log_key].writerow(["time", "motor", "kp", "ki", "kd"])
-            
-        self.gui.update_monitor(f"Robot {robot_id}: Started logging {data_type} data to {log_filename}")
+
+        self.gui.update_monitor(f"Robot {robot_id}: Logging {clean_name} → {log_filename}")
     
     def close_robot_logs(self, robot_id):
         """Close all log files for a specific robot"""
@@ -536,28 +550,45 @@ class Server:
             data = message.get('data', {})
             position = data.get('position', [0.0, 0.0])
             velocity = data.get('velocity', [0.0, 0.0])
-            
+
             if source == 'ekf':
                 if len(position) >= 5:
                     x, y, vx, vy, theta = position[0], position[1], position[2], position[3], position[4]
                     self.ui_update_queue.put(('ekf', robot_id, (x, y, theta)))
                 else:
                     self.gui.update_monitor(f"Robot {robot_id}: EKF data missing 5 values, only has {len(position)}")
-            
+                    return
             elif source == 'optical_flow':
-                self.ui_update_queue.put(('bno055', robot_id, (position[0], position[1], velocity[0], velocity[1])))
-            
+                x, y = position[0], position[1]
+                vx = velocity[0] if len(velocity) > 0 else 0.0
+                vy = velocity[1] if len(velocity) > 1 else 0.0
+                theta = 0.0
+                self.ui_update_queue.put(('bno055', robot_id, (x, y, vx, vy)))
             elif source == 'odometry':
-                self.ui_update_queue.put(('odometry', robot_id, (position[0], position[1], velocity[0], velocity[1])))
-            
+                x, y = position[0], position[1]
+                vx = velocity[0] if len(velocity) > 0 else 0.0
+                vy = velocity[1] if len(velocity) > 1 else 0.0
+                theta = 0.0
+                self.ui_update_queue.put(('odometry', robot_id, (x, y, vx, vy)))
             elif source == 'localization':
-                self.ui_update_queue.put(('localization', robot_id, (position[0], position[1])))
-            
+                x, y = position[0], position[1]
+                theta = 0.0
+                vx, vy = 0.0, 0.0
+                self.ui_update_queue.put(('localization', robot_id, (x, y)))
+            else:
+                x, y = position[0] if position else 0.0, position[1] if len(position) > 1 else 0.0
+                theta, vx, vy = 0.0, 0.0, 0.0
+
             self.setup_log_file(robot_id, "position")
             log_key = (robot_id, "position")
             if self.log_data and log_key in self.log_files:
                 elapsed = time.time() - self.common_start_time
-                row = [elapsed, source] + position + velocity
+                # Normalized 7-column row: time, source, x, y, theta, vx, vy
+                row = [
+                    f"{elapsed:.4f}", source,
+                    f"{x:.6f}", f"{y:.6f}", f"{theta:.6f}",
+                    f"{vx:.6f}", f"{vy:.6f}"
+                ]
                 self.log_writers[log_key].writerow(row)
                 self.log_files[log_key].flush()
         except Exception as e:

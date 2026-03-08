@@ -42,6 +42,7 @@ class ApproachManager:
         self.approach_phase_active = False
         self.approach_trajectories = {}  # {robot_id: trajectory_list}
         self.arrived_status = {}         # {robot_id: bool}
+        self.grip_sides = {}             # {robot_id: "top"|"bottom"|"left"|"right"}
     
     def compute_approach_trajectories(self, use_vector_field=True, use_collision_avoidance=True):
         """
@@ -451,8 +452,11 @@ class ApproachManager:
         # Assign positions: "top", "bottom" (for 2 robots) or "top", "left", "right" (for 3 robots)
         grip_side = {}
         if len(sorted_robots) == 1:
-            # Single robot test mode - assign default side
-            grip_side[sorted_robots[0]] = "top"  # or "top", doesn't matter for single robot
+            # Determine actual side from Y position relative to object
+            rid = sorted_robots[0]
+            robot_y = robot_positions_info[rid]["y"]
+            obj_y = server.object_position[1] if server.object_position is not None else 0
+            grip_side[rid] = "top" if robot_y > obj_y else "bottom"
         elif len(sorted_robots) == 2:
             grip_side[sorted_robots[0]] = "top"
             grip_side[sorted_robots[1]] = "bottom"
@@ -468,6 +472,9 @@ class ApproachManager:
                 grip_side[bottom_two[0]] = "right"
                 grip_side[bottom_two[1]] = "left"
         
+        # Persist grip side assignments for use by transport phase (execute_place)
+        self.grip_sides = dict(grip_side)
+
         # Send grip command to each robot
         success_count = 0
         for robot_id in arrived_robots:

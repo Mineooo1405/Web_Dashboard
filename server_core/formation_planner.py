@@ -1,7 +1,7 @@
 """
 Formation Planner Module
 
-Calculates grip positions for 2 or 3 robots around an object.
+Calculates grip positions for 1, 2, or 3 robots around an object.
 Provides formation offsets for Virtual Structure control.
 """
 
@@ -13,7 +13,7 @@ class FormationPlanner:
     """
     Calculate grip positions for robots around an object.
     
-    Supports flexible configurations for 2 or 3 robots.
+    Supports flexible configurations for 1, 2, or 3 robots.
     
     Formation layouts:
     - 3 robots: Equilateral triangle
@@ -25,8 +25,11 @@ class FormationPlanner:
         - Robot 1: Top (90°)
         - Robot 2: Bottom (270°)
     
+    - 1 robot: Single position
+        - Robot 1: Top (90°)
+    
     Attributes:
-        num_robots: Number of robots (2 or 3)
+        num_robots: Number of robots (1, 2, or 3)
         grip_radius: Distance from object center to grip positions
         robot_angles: Dict of robot_id -> angle in degrees
     """
@@ -39,16 +42,15 @@ class FormationPlanner:
     }
     
     DEFAULT_ANGLES_2 = {
-        1: 90.0,    # Top
-        2: 270.0    # Bottom
+        1: 270.0,    # Top
     }
     
-    def __init__(self, num_robots: int = 3, grip_radius: float = 0.4):
+    def __init__(self, num_robots: int = 1, grip_radius: float = 0.4):
         """
         Initialize the Formation Planner.
         
         Args:
-            num_robots: Number of robots (2 or 3)
+            num_robots: Number of robots (1, 2, or 3)
             grip_radius: Distance from object center to grip positions (meters)
         """
         self._num_robots = 0
@@ -71,21 +73,24 @@ class FormationPlanner:
         Set the number of robots.
         
         Args:
-            num_robots: Number of robots (2 or 3)
+            num_robots: Number of robots (1, 2, or 3)
             
         Raises:
-            ValueError: If num_robots is not 2 or 3
+            ValueError: If num_robots is not 1, 2, or 3
         """
-        if num_robots not in (2, 3):
-            raise ValueError(f"num_robots must be 2 or 3, got {num_robots}")
+        if num_robots not in (1, 2, 3):
+            raise ValueError(f"num_robots must be 1, 2, or 3, got {num_robots}")
         
         self._num_robots = num_robots
         
         # Set default angles based on robot count
         if num_robots == 3:
             self.robot_angles = self.DEFAULT_ANGLES_3.copy()
-        else:
+        elif num_robots == 2:
             self.robot_angles = self.DEFAULT_ANGLES_2.copy()
+        else:
+            # Single robot: position at 90° (top)
+            self.robot_angles = {1: 270.0}
         
         # Reset active robots to all
         self.active_robots = set(self.robot_angles.keys())
@@ -251,7 +256,7 @@ class FormationPlanner:
 # Singleton instance
 _default_planner = None
 
-def get_formation_planner(num_robots: int = 3, grip_radius: float = 0.4) -> FormationPlanner:
+def get_formation_planner(num_robots: int = 1, grip_radius: float = 0.4) -> FormationPlanner:
     """
     Get or create the default FormationPlanner instance.
     

@@ -157,7 +157,7 @@ class WebGUI:
         
         # Arm GUI proxies
         self.arm_guis = {}
-        for robot_id in [1, 2, 3]:
+        for robot_id in [1]:
             self.arm_guis[robot_id] = ArmGUIProxy(robot_id, self._broadcast)
         
         # Server reference (set after Server is created)

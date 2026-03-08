@@ -11,11 +11,16 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 import uvicorn
 
 from web_gui import WebGUI
 from server_core.server import Server
+from server_core.kinematics import (
+    inverse_kinematics_full, forward_kinematics,
+    apply_gravity_compensation, convert_to_inclinometer,
+    ARM_D1, ARM_A2, ARM_A3, ARM_D5, GRAVITY_GAINS,
+)
 
 
 # ============================================================
@@ -139,7 +144,14 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 @app.get("/")
 async def root():
-    return FileResponse(os.path.join(static_dir, "index.html"))
+    return FileResponse(
+        os.path.join(static_dir, "index.html"),
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        }
+    )
 
 
 # ============================================================
@@ -376,10 +388,136 @@ async def get_profiles():
     except FileNotFoundError:
         profiles = {
             'Robot 1': {'host': '192.168.1.211', 'port': 2004},
-            'Robot 2': {'host': '192.168.1.212', 'port': 2004},
-            'Robot 3': {'host': '192.168.1.213', 'port': 2004},
         }
     return profiles
+
+
+# ============================================================
+# Analytics API — Log file access
+# ============================================================
+@app.get("/api/logs")
+async def list_logs():
+    """List all CSV log files in the logs/ directory"""
+    log_dir = os.path.join(os.path.dirname(__file__), 'logs')
+    if not os.path.isdir(log_dir):
+        return []
+    files = [f for f in os.listdir(log_dir) if f.endswith('.csv')]
+    files.sort(reverse=True)
+    return files
+
+
+@app.get("/api/logs/{filename}")
+async def get_log(filename: str):
+    """Return the raw content of a log CSV file"""
+    log_dir = os.path.join(os.path.dirname(__file__), 'logs')
+    filepath = os.path.join(log_dir, filename)
+    # Security: ensure the file is inside the logs directory
+    if not os.path.realpath(filepath).startswith(os.path.realpath(log_dir)):
+        return PlainTextResponse("Forbidden", status_code=403)
+    if not os.path.isfile(filepath):
+        return PlainTextResponse("Not found", status_code=404)
+    return FileResponse(filepath, media_type='text/csv')
+
+
+# ============================================================
+# Arm Kinematics API  (IK / FK simulation — browser-side viz)
+# ============================================================
+@app.get("/api/arm/config")
+async def arm_config():
+    """Return robot arm parameters for the browser visualizer."""
+    return {
+        "d1": ARM_D1, "a2": ARM_A2, "a3": ARM_A3, "d5": ARM_D5,
+        "max_reach": ARM_A2 + ARM_A3,
+        "min_reach": abs(ARM_A2 - ARM_A3),
+        "gravity_gains": GRAVITY_GAINS,
+    }
+
+
+def _inclinometer_bundle(fk: dict, fk_g: dict) -> dict:
+    la  = fk.get("link_angles", {})
+    la_g = fk_g.get("link_angles", {})
+    return {
+        "xavier": {
+            "link1": convert_to_inclinometer(la.get("link1_geo", 0)),
+            "link2": convert_to_inclinometer(la.get("link2_geo", 0)),
+            "link3": convert_to_inclinometer(la.get("link3_geo", 0)),
+        },
+        "gravity": {
+            "link1": convert_to_inclinometer(la_g.get("link1_geo", 0)),
+            "link2": convert_to_inclinometer(la_g.get("link2_geo", 0)),
+            "link3": convert_to_inclinometer(la_g.get("link3_geo", 0)),
+        },
+    }
+
+
+@app.post("/api/arm/ik")
+async def api_arm_ik(data: dict):
+    """Solve IK for (x, y, z, phi) and return joints + visualisation data."""
+    x   = float(data.get("x",   100))
+    y   = float(data.get("y",   0))
+    z   = float(data.get("z",   100))
+    phi = float(data.get("phi", -90))
+
+    success, angles, debug = inverse_kinematics_full(x, y, z, phi)
+    if not success:
+        return {
+            "success": False,
+            "fail_reason": debug.get("fail_reason", "Unknown error"),
+            "debug": debug,
+        }
+
+    j0, j1, j2, j3 = angles["j0"], angles["j1"], angles["j2"], angles["j3"]
+
+    fk,   pts_rz   = forward_kinematics(j0, j1,  j2,  j3)
+    j1_c = apply_gravity_compensation(1, j1)
+    j2_c = apply_gravity_compensation(2, j2)
+    j3_c = apply_gravity_compensation(3, j3)
+    fk_c, pts_rz_g = forward_kinematics(j0, j1_c, j2_c, j3_c)
+
+    r = debug.get("r", 0.0)
+    return {
+        "success":          True,
+        "mode":             "IK",
+        "input":            {"x": x, "y": y, "z": z, "phi": phi, "r": r},
+        "joints":           {"j0": j0, "j1": j1, "j2": j2, "j3": j3},
+        "gravity_comp":     {"j1": j1_c, "j2": j2_c, "j3": j3_c},
+        "points_rz":        pts_rz,
+        "points_rz_gravity": pts_rz_g,
+        "target_rz":        [r, z],
+        "wrist_rz":         [debug.get("wrist_r", 0), debug.get("wrist_z", 0)],
+        "tcp_xyz":          fk,
+        "inclinometer":     _inclinometer_bundle(fk, fk_c),
+        "debug":            debug,
+    }
+
+
+@app.post("/api/arm/fk")
+async def api_arm_fk(data: dict):
+    """Compute FK for (j0..j3) and return TCP + visualisation data."""
+    j0 = float(data.get("j0", 90))
+    j1 = float(data.get("j1", 90))
+    j2 = float(data.get("j2", 90))
+    j3 = float(data.get("j3", 90))
+
+    fk,   pts_rz   = forward_kinematics(j0, j1,  j2,  j3)
+    j1_c = apply_gravity_compensation(1, j1)
+    j2_c = apply_gravity_compensation(2, j2)
+    j3_c = apply_gravity_compensation(3, j3)
+    fk_c, pts_rz_g = forward_kinematics(j0, j1_c, j2_c, j3_c)
+
+    wrist_rz = pts_rz[-2] if ARM_D5 > 0 else pts_rz[-1]
+    return {
+        "success":           True,
+        "mode":              "FK",
+        "joints":            {"j0": j0, "j1": j1, "j2": j2, "j3": j3},
+        "gravity_comp":      {"j1": j1_c, "j2": j2_c, "j3": j3_c},
+        "points_rz":         pts_rz,
+        "points_rz_gravity": pts_rz_g,
+        "wrist_rz":          wrist_rz,
+        "tcp_xyz":           fk,
+        "tcp_xyz_gravity":   fk_c,
+        "inclinometer":      _inclinometer_bundle(fk, fk_c),
+    }
 
 
 # ============================================================
