@@ -221,43 +221,6 @@ function handleVizFullState(state) {
 // ============================================================
 function handleVizUpdate(method, args) {
     switch (method) {
-<<<<<<< HEAD
-        case 'update_position': {
-            const [rid, x, y, theta] = args;
-            vizState.positions[rid] = [x, y, theta];
-            if (!vizState.trajectories[rid]) vizState.trajectories[rid] = [];
-            vizState.trajectories[rid].push([x, y]);
-            if (vizState.trajectories[rid].length > 2000)
-                vizState.trajectories[rid] = vizState.trajectories[rid].slice(-1500);
-            updateSensorCard(rid, 'ekf', { x, y });
-            requestRedraw();
-            break;
-        }
-        case 'update_ekf': {
-            const [rid, x, y] = args;
-            vizState.ekf[rid] = [x, y];
-            updateSensorCard(rid, 'ekf', { x, y });
-            break;
-        }
-        case 'update_bno055': {
-            const [rid, x, y, vx, vy] = args;
-            vizState.bno055[rid] = [x, y, vx, vy];
-            updateSensorCard(rid, 'bno055', { x, y, vx, vy });
-            break;
-        }
-        case 'update_odometry': {
-            const [rid, x, y, vx, vy] = args;
-            vizState.odometry[rid] = [x, y, vx, vy];
-            updateSensorCard(rid, 'odo', { x, y, vx, vy });
-            break;
-        }
-        case 'update_localization': {
-            const [rid, x, y] = args;
-            vizState.localization[rid] = [x, y];
-            updateSensorCard(rid, 'loc', { x, y });
-            break;
-        }
-=======
         case 'update_position':
             {
                 const [rid, x, y, theta] = args;
@@ -308,7 +271,6 @@ function handleVizUpdate(method, args) {
                 updateSensorCard(rid, 'loc', { x, y });
                 break;
             }
->>>>>>> 492b6c69692458e46862f9dc26b172ffac037434
         case 'set_object_position':
             vizState.object = args;
             requestRedraw();
@@ -367,12 +329,8 @@ function drawMap() {
     const canvas = document.getElementById('map-canvas');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-<<<<<<< HEAD
-    const w = canvas.width, h = canvas.height;
-=======
     const w = canvas.width,
         h = canvas.height;
->>>>>>> 492b6c69692458e46862f9dc26b172ffac037434
 
     // Theme-aware colors
     const gridColor = cssVar('--map-grid');
@@ -461,10 +419,6 @@ function drawMap() {
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         // Draw X marker
-<<<<<<< HEAD
-        ctx.beginPath(); ctx.moveTo(gx - 6, gy - 6); ctx.lineTo(gx + 6, gy + 6); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(gx + 6, gy - 6); ctx.lineTo(gx - 6, gy + 6); ctx.stroke();
-=======
         ctx.beginPath();
         ctx.moveTo(gx - 6, gy - 6);
         ctx.lineTo(gx + 6, gy + 6);
@@ -473,7 +427,6 @@ function drawMap() {
         ctx.moveTo(gx + 6, gy - 6);
         ctx.lineTo(gx - 6, gy + 6);
         ctx.stroke();
->>>>>>> 492b6c69692458e46862f9dc26b172ffac037434
     }
 
     // Destination
@@ -565,14 +518,10 @@ function drawMap() {
         ctx.fillStyle = color + '40';
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
-<<<<<<< HEAD
-        ctx.beginPath(); ctx.arc(cx, cy, robotR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-=======
         ctx.beginPath();
         ctx.arc(cx, cy, robotR, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
->>>>>>> 492b6c69692458e46862f9dc26b172ffac037434
 
         // Direction arrow
         const arrowLen = robotR * 1.3;
@@ -580,14 +529,10 @@ function drawMap() {
         const ay = cy + arrowLen * Math.sin(-theta + Math.PI / 2);
         ctx.strokeStyle = color;
         ctx.lineWidth = 2.5;
-<<<<<<< HEAD
-        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ax, ay); ctx.stroke();
-=======
         ctx.beginPath();
         ctx.moveTo(cx, cy);
         ctx.lineTo(ax, ay);
         ctx.stroke();
->>>>>>> 492b6c69692458e46862f9dc26b172ffac037434
 
         // Arrow head
         const headLen = 6;
@@ -1107,13 +1052,9 @@ function closeKeyboardControl() {
 function handleKeyboard() {
     if (!kbActive) return;
     const speed = parseFloat(document.getElementById('kb-speed').value);
-<<<<<<< HEAD
-    let dx = 0, dy = 0, dtheta = 0;
-=======
     let dx = 0,
         dy = 0,
         dtheta = 0;
->>>>>>> 492b6c69692458e46862f9dc26b172ffac037434
 
     if (activeKeys.has('w')) dy = speed;
     if (activeKeys.has('s')) dy = -speed;

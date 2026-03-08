@@ -1,11 +1,4 @@
-<<<<<<< HEAD
-_pycache_/
-logs/
-trajectory_logs/
-server_core/_pycache_/
-=======
 __pycache__/
 logs/
 trajectory_logs/
 server_core/__pycache__/
->>>>>>> 492b6c69692458e46862f9dc26b172ffac037434

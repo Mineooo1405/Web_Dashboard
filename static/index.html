@@ -16,11 +16,7 @@
 
     <!-- ── Top Bar ── -->
     <header id="topbar">
-<<<<<<< HEAD
-        <h1>Multi-Robot Control</h1>
-=======
         <h1>Single Robot Control</h1>
->>>>>>> 492b6c69692458e46862f9dc26b172ffac037434
         <div class="topbar-right">
             <div id="ws-status">
                 <span id="ws-indicator" class="indicator off"></span>
@@ -37,11 +33,7 @@
                         d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
                 </svg>
             </button>
-<<<<<<< HEAD
-            <button class="btn btn-danger btn-sm" onclick="sendAction({action:'emergency_stop'})">STOP ALL</button>
-=======
             <button class="btn btn-danger btn-sm" onclick="sendAction({action:'emergency_stop'})">STOP</button>
->>>>>>> 492b6c69692458e46862f9dc26b172ffac037434
         </div>
     </header>
 
@@ -50,10 +42,7 @@
         <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
         <button class="tab-btn" data-tab="control">Control</button>
         <button class="tab-btn" data-tab="arm">Arm</button>
-<<<<<<< HEAD
-=======
         <button class="tab-btn" data-tab="analytics">Analytics</button>
->>>>>>> 492b6c69692458e46862f9dc26b172ffac037434
         <button class="tab-btn" data-tab="connection">Connection</button>
         <button class="tab-btn" data-tab="settings">Settings</button>
     </nav>
@@ -79,223 +68,6 @@
                 <div class="card" id="sensor-panel">
                     <div class="card-header">Sensors</div>
                     <div id="sensor-grid"></div>
-<<<<<<< HEAD
-                </div>
-
-                <!-- Object -->
-                <div class="card">
-                    <div class="card-header">Object</div>
-                    <div class="form-row">
-                        <label>X:</label><input type="number" id="obj-x" value="3.6" step="0.1" class="input-sm">
-                        <label>Y:</label><input type="number" id="obj-y" value="3.18" step="0.1" class="input-sm">
-                        <label>L:</label><input type="number" id="obj-length" value="0.3" step="0.05" class="input-sm">
-                        <label>W:</label><input type="number" id="obj-width" value="0.3" step="0.05" class="input-sm">
-                        <button class="btn btn-primary btn-sm" onclick="setObject()">Set</button>
-                    </div>
-                </div>
-
-                <!-- Config -->
-                <div class="card">
-                    <div class="card-header">Configuration</div>
-                    <div class="form-row">
-                        <label>Robots:</label>
-                        <select id="num-robots" class="input-sm">
-                            <option value="1">1</option>
-                            <option value="2" selected>2</option>
-                            <option value="3">3</option>
-                        </select>
-                        <label>Gripper:</label>
-                        <input type="number" id="gripper-length" value="0.05" step="0.01" class="input-sm">
-                        <label>m</label>
-                        <button class="btn btn-primary btn-sm" onclick="applyConfig()">Apply</button>
-                    </div>
-                </div>
-
-                <!-- Obstacles -->
-                <div class="card">
-                    <div class="card-header">Obstacles</div>
-                    <div class="form-row">
-                        <label>X:</label><input type="number" id="obs-x" value="0.95" step="0.1" class="input-sm">
-                        <label>Y:</label><input type="number" id="obs-y" value="2.98" step="0.1" class="input-sm">
-                        <label>R:</label><input type="number" id="obs-r" value="0.3" step="0.05" class="input-sm">
-                        <button class="btn btn-success btn-sm" onclick="addObstacle()">Add</button>
-                        <button class="btn btn-ghost btn-sm" onclick="clearObstacles()">Clear</button>
-                    </div>
-                </div>
-
-                <!-- Phase 1 -->
-                <div class="card">
-                    <div class="card-header">Phase 1 &mdash; Approach</div>
-                    <div class="form-row">
-                        <button class="btn btn-success btn-wide" onclick="startApproach()">Start Approach</button>
-                        <button class="btn btn-danger btn-wide" onclick="abortApproach()">Abort</button>
-                    </div>
-                    <div class="form-row status-row mt-sm" id="arrival-status">
-                        <span class="arrival-badge" id="arrival-1" data-rid="1">R1: Wait</span>
-                        <span class="arrival-badge" id="arrival-2" data-rid="2">R2: Wait</span>
-                        <span class="arrival-badge" id="arrival-3" data-rid="3">R3: Wait</span>
-                    </div>
-                </div>
-
-                <!-- Phase 2 -->
-                <div class="card">
-                    <div class="card-header">Phase 2 &mdash; Transport</div>
-                    <div class="form-row">
-                        <label>X:</label><input type="number" id="dest-x" value="2.0" step="0.1" class="input-sm">
-                        <label>Y:</label><input type="number" id="dest-y" value="6.0" step="0.1" class="input-sm">
-                        <button class="btn btn-primary btn-sm" onclick="setDestination()">Set</button>
-                    </div>
-                    <div class="form-row">
-                        <button class="btn btn-success btn-wide" id="btn-start-transport"
-                            onclick="startTransport()">Start Transport</button>
-                        <button class="btn btn-danger btn-wide" onclick="abortTransport()">Abort</button>
-                    </div>
-                    <div id="phase2-status" class="status-text">Waiting for Phase 1</div>
-                </div>
-
-                <!-- Test Mode -->
-                <div class="card">
-                    <div class="card-header">Test Mode</div>
-                    <div id="test-positions">
-                        <div class="form-row" data-rid="1">
-                            <label>R1:</label>
-                            <input type="number" class="input-sm test-x" value="1.55" step="0.1">
-                            <input type="number" class="input-sm test-y" value="1.78" step="0.1">
-                        </div>
-                        <div class="form-row" data-rid="2">
-                            <label>R2:</label>
-                            <input type="number" class="input-sm test-x" value="2.0" step="0.1">
-                            <input type="number" class="input-sm test-y" value="1.78" step="0.1">
-                        </div>
-                    </div>
-                    <div class="form-row mt-sm">
-                        <button class="btn btn-ghost" onclick="testApplyPositions()">Apply</button>
-                        <button class="btn btn-primary" onclick="testComputeTrajectories()">Compute
-                            Trajectories</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ══════ TAB 2: Robot Control ══════ -->
-    <div id="tab-control" class="tab-content">
-        <div class="robot-tabs">
-            <button class="robot-tab-btn active" data-robot="1" onclick="selectRobotTab(1)">Robot 1</button>
-            <button class="robot-tab-btn" data-robot="2" onclick="selectRobotTab(2)">Robot 2</button>
-            <button class="robot-tab-btn" data-robot="3" onclick="selectRobotTab(3)">Robot 3</button>
-        </div>
-        <div class="control-layout" id="robot-control-content">
-            <div class="control-left">
-                <div class="card" id="motor-panel">
-                    <div class="card-header">Motor RPM <span id="ctrl-status" class="status-badge">Disconnected</span>
-                    </div>
-                    <div id="motor-grid"></div>
-                </div>
-                <div class="card" id="pid-panel">
-                    <div class="card-header">PID Tuning</div>
-                    <div id="pid-grid"></div>
-                    <div class="form-row mt-sm">
-                        <button class="btn btn-ghost" onclick="savePID()">Save</button>
-                        <button class="btn btn-ghost" onclick="loadPID()">Load</button>
-                    </div>
-                </div>
-            </div>
-            <div class="control-right">
-                <div class="card">
-                    <div class="card-header">Actions</div>
-                    <div class="btn-grid">
-                        <button class="btn btn-primary" onclick="openKeyboardControl()">Keyboard Drive</button>
-                        <button class="btn btn-danger" onclick="emergencyStop()">Emergency Stop</button>
-                        <button class="btn btn-ghost" onclick="resetESP()">Reset ESP</button>
-                        <button class="btn btn-ghost" onclick="runTestSquare()">Square Test</button>
-                        <button class="btn btn-ghost" onclick="runTestCircle()">Circle Test</button>
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="card-header">IMU Sensor</div>
-                    <div class="sensor-row">
-                        <label>Calibration:</label>
-                        <span id="calib-status" class="calib-badge not-cal">Not Calibrated</span>
-                    </div>
-                    <div class="sensor-row">
-                        <label>Heading:</label>
-                        <span id="heading-value" class="heading-display">0.0&deg;</span>
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="card-header">RPM Chart</div>
-                    <div class="rpm-chart-wrap">
-                        <canvas id="rpm-chart"></canvas>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ══════ TAB 3: Robot Arm ══════ -->
-    <div id="tab-arm" class="tab-content">
-        <div class="robot-tabs">
-            <button class="robot-tab-btn active" data-robot="1" onclick="selectArmTab(1)">Robot 1</button>
-            <button class="robot-tab-btn" data-robot="2" onclick="selectArmTab(2)">Robot 2</button>
-            <button class="robot-tab-btn" data-robot="3" onclick="selectArmTab(3)">Robot 3</button>
-        </div>
-        <div class="arm-layout">
-            <div class="card">
-                <div class="card-header">Inverse Kinematics (mm)</div>
-                <div class="form-row">
-                    <label>X:</label><input type="number" id="arm-x" value="100" class="input-sm">
-                    <label>Y:</label><input type="number" id="arm-y" value="0" class="input-sm">
-                    <label>Z:</label><input type="number" id="arm-z" value="50" class="input-sm">
-                    <label>Pitch:</label><input type="number" id="arm-pitch" value="0" class="input-sm">
-                    <button class="btn btn-primary" onclick="sendArmIK()">Solve</button>
-                </div>
-            </div>
-            <div class="card">
-                <div class="card-header">Servo Angles (&deg;)</div>
-                <div class="form-row wrap">
-                    <span><label>J0:</label><input type="number" id="arm-j0" value="90" class="input-xs"></span>
-                    <span><label>J1:</label><input type="number" id="arm-j1" value="90" class="input-xs"></span>
-                    <span><label>J2:</label><input type="number" id="arm-j2" value="90" class="input-xs"></span>
-                    <span><label>J3:</label><input type="number" id="arm-j3" value="90" class="input-xs"></span>
-                    <span><label>J4:</label><input type="number" id="arm-j4" value="90" class="input-xs"></span>
-                    <span><label>J5:</label><input type="number" id="arm-j5" value="90" class="input-xs"></span>
-                    <button class="btn btn-primary" onclick="sendArmServo()">Send</button>
-                </div>
-            </div>
-            <div class="card">
-                <div class="card-header">Commands</div>
-                <div class="btn-grid">
-                    <button class="btn btn-success" onclick="sendArmPick()">Pick</button>
-                    <button class="btn btn-primary" onclick="sendArmPlace()">Place</button>
-                    <button class="btn btn-ghost" onclick="sendArmGripper('open')">Gripper Open</button>
-                    <button class="btn btn-ghost" onclick="sendArmGripper('close')">Gripper Close</button>
-                    <button class="btn btn-warning" onclick="sendArmRest()">Rest</button>
-                </div>
-            </div>
-            <div class="card">
-                <div class="card-header">IK Result</div>
-                <div id="arm-result" class="arm-result">
-                    <span class="joint-val" id="res-j0">J0: --</span>
-                    <span class="joint-val" id="res-j1">J1: --</span>
-                    <span class="joint-val" id="res-j2">J2: --</span>
-                    <span class="joint-val" id="res-j3">J3: --</span>
-                    <span class="joint-val" id="res-j4">J4: --</span>
-                    <span class="joint-val" id="res-j5">J5: --</span>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ══════ TAB 4: Connection ══════ -->
-    <div id="tab-connection" class="tab-content">
-        <div id="connection-panels"></div>
-        <div class="form-row mt-sm">
-            <button class="btn btn-danger" onclick="disconnectAll()">Disconnect All</button>
-        </div>
-    </div>
-
-=======
                 </div>
 
                 <!-- Object -->
@@ -707,7 +479,6 @@
         <div id="connection-panels"></div>
     </div>
 
->>>>>>> 492b6c69692458e46862f9dc26b172ffac037434
     <!-- ══════ TAB 5: Settings ══════ -->
     <div id="tab-settings" class="tab-content">
         <div class="card" style="max-width:560px">
@@ -781,11 +552,8 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<<<<<<< HEAD
-=======
     <script src="/static/js/analytics.js"></script>
     <script src="/static/js/arm_viz.js"></script>
->>>>>>> 492b6c69692458e46862f9dc26b172ffac037434
     <script src="/static/js/app.js"></script>
 </body>
 
