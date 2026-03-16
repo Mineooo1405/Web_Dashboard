@@ -473,6 +473,7 @@ class Server:
                 x = float(position_data.get('x', 0.0))
                 y = float(position_data.get('y', 0.0))
                 theta = float(position_data.get('theta', 0.0))
+                source = str(position_data.get('source', 'ekf')).strip().lower() or 'ekf'
                 
                 vx_raw = position_data.get('vx', None)
                 vy_raw = position_data.get('vy', None)
@@ -487,6 +488,7 @@ class Server:
                     elapsed = time.time() - self.common_start_time
                     self.log_writers[log_key].writerow([
                         f"{elapsed:.3f}",
+                        source,
                         f"{x:.4f}",
                         f"{y:.4f}",
                         f"{theta:.4f}",

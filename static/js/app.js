@@ -309,20 +309,126 @@ function handleVizUpdate(method, args) {
 // ============================================================
 // Canvas Map
 // ============================================================
-const MAP_RANGE = { xMin: -1, xMax: 7, yMin: -1, yMax: 7 };
+const MAP_DEFAULT_VIEW = { xMin: -1, xMax: 7, yMin: -1, yMax: 7 };
+const MAP_MIN_SPAN = 0.6;
+const MAP_MAX_SPAN = 80;
+let mapView = { ...MAP_DEFAULT_VIEW };
 let mapNeedsRedraw = false;
+let mapIsPanning = false;
+let panStartPx = null;
+let panStartView = null;
 
 function requestRedraw() { mapNeedsRedraw = true; }
+
+function mapSpanX() { return mapView.xMax - mapView.xMin; }
+
+function mapSpanY() { return mapView.yMax - mapView.yMin; }
+
+function clamp(v, min, max) {
+    return Math.max(min, Math.min(max, v));
+}
+
+function formatAxisValue(v, step) {
+    const eps = 1e-9;
+    if (Math.abs(v) < eps) return '0';
+    if (step >= 1) return v.toFixed(0);
+    if (step >= 0.5) return v.toFixed(1).replace(/\.0$/, '');
+    return v.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function resetMapCamera() {
+    mapView = { ...MAP_DEFAULT_VIEW };
+}
 
 function worldToCanvas(x, y, canvas) {
     const w = canvas.width,
         h = canvas.height;
-    const sx = w / (MAP_RANGE.xMax - MAP_RANGE.xMin);
-    const sy = h / (MAP_RANGE.yMax - MAP_RANGE.yMin);
+    const sx = w / mapSpanX();
+    const sy = h / mapSpanY();
     return [
-        (x - MAP_RANGE.xMin) * sx,
-        h - (y - MAP_RANGE.yMin) * sy // flip Y
+        (x - mapView.xMin) * sx,
+        h - (y - mapView.yMin) * sy // flip Y
     ];
+}
+
+function canvasToWorld(px, py, canvas) {
+    const w = canvas.width,
+        h = canvas.height;
+    const sx = w / mapSpanX();
+    const sy = h / mapSpanY();
+    return [
+        mapView.xMin + (px / sx),
+        mapView.yMin + ((h - py) / sy)
+    ];
+}
+
+function zoomMapAtPoint(canvas, pixelX, pixelY, zoomFactor) {
+    const [worldX, worldY] = canvasToWorld(pixelX, pixelY, canvas);
+    const oldSpanX = mapSpanX();
+    const oldSpanY = mapSpanY();
+    const newSpanX = clamp(oldSpanX * zoomFactor, MAP_MIN_SPAN, MAP_MAX_SPAN);
+    const newSpanY = clamp(oldSpanY * zoomFactor, MAP_MIN_SPAN, MAP_MAX_SPAN);
+
+    const rx = pixelX / canvas.width;
+    const ry = (canvas.height - pixelY) / canvas.height;
+
+    mapView.xMin = worldX - (rx * newSpanX);
+    mapView.xMax = mapView.xMin + newSpanX;
+    mapView.yMin = worldY - (ry * newSpanY);
+    mapView.yMax = mapView.yMin + newSpanY;
+}
+
+function initMapInteractions() {
+    const canvas = document.getElementById('map-canvas');
+    if (!canvas) return;
+
+    canvas.style.cursor = 'grab';
+
+    canvas.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        mapIsPanning = true;
+        panStartPx = { x: e.clientX, y: e.clientY };
+        panStartView = { ...mapView };
+        canvas.style.cursor = 'grabbing';
+        e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!mapIsPanning || !panStartPx || !panStartView) return;
+
+        const dxPx = e.clientX - panStartPx.x;
+        const dyPx = e.clientY - panStartPx.y;
+        const worldDx = -dxPx * ((panStartView.xMax - panStartView.xMin) / canvas.width);
+        const worldDy = dyPx * ((panStartView.yMax - panStartView.yMin) / canvas.height);
+
+        mapView.xMin = panStartView.xMin + worldDx;
+        mapView.xMax = panStartView.xMax + worldDx;
+        mapView.yMin = panStartView.yMin + worldDy;
+        mapView.yMax = panStartView.yMax + worldDy;
+        requestRedraw();
+    });
+
+    window.addEventListener('mouseup', () => {
+        mapIsPanning = false;
+        panStartPx = null;
+        panStartView = null;
+        canvas.style.cursor = 'grab';
+    });
+
+    canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const px = e.clientX - rect.left;
+        const py = e.clientY - rect.top;
+        const zoomFactor = e.deltaY < 0 ? 0.9 : 1.1;
+        zoomMapAtPoint(canvas, px, py, zoomFactor);
+        requestRedraw();
+    }, { passive: false });
+
+    canvas.addEventListener('dblclick', () => {
+        resetMapCamera();
+        requestRedraw();
+    });
 }
 
 function drawMap() {
@@ -331,6 +437,10 @@ function drawMap() {
     const ctx = canvas.getContext('2d');
     const w = canvas.width,
         h = canvas.height;
+    const sx = w / mapSpanX();
+    const sy = h / mapSpanY();
+    const uniformScale = Math.min(sx, sy);
+    const span = Math.max(mapSpanX(), mapSpanY());
 
     // Theme-aware colors
     const gridColor = cssVar('--map-grid');
@@ -342,15 +452,15 @@ function drawMap() {
     // Grid
     ctx.strokeStyle = gridColor;
     ctx.lineWidth = 0.5;
-    const gridSize = 0.5;
-    for (let gx = Math.ceil(MAP_RANGE.xMin / gridSize) * gridSize; gx <= MAP_RANGE.xMax; gx += gridSize) {
+    const gridSize = span > 30 ? 2 : span > 16 ? 1 : span > 8 ? 0.5 : span > 4 ? 0.25 : 0.1;
+    for (let gx = Math.ceil(mapView.xMin / gridSize) * gridSize; gx <= mapView.xMax; gx += gridSize) {
         const [px] = worldToCanvas(gx, 0, canvas);
         ctx.beginPath();
         ctx.moveTo(px, 0);
         ctx.lineTo(px, h);
         ctx.stroke();
     }
-    for (let gy = Math.ceil(MAP_RANGE.yMin / gridSize) * gridSize; gy <= MAP_RANGE.yMax; gy += gridSize) {
+    for (let gy = Math.ceil(mapView.yMin / gridSize) * gridSize; gy <= mapView.yMax; gy += gridSize) {
         const [, py] = worldToCanvas(0, gy, canvas);
         ctx.beginPath();
         ctx.moveTo(0, py);
@@ -358,16 +468,58 @@ function drawMap() {
         ctx.stroke();
     }
 
-    // Axes labels
+    // Axis labels (x-axis numbers follow the horizontal axis y=0 when visible)
     ctx.fillStyle = labelColor;
     ctx.font = '10px Inter, sans-serif';
-    for (let gx = 0; gx <= MAP_RANGE.xMax; gx += 1) {
-        const [px, py] = worldToCanvas(gx, 0, canvas);
-        ctx.fillText(gx.toString(), px + 2, py - 3);
+    const labelStep = span > 30 ? 5 : span > 12 ? 2 : span > 4 ? 1 : 0.5;
+
+    const xAxisInView = mapView.yMin <= 0 && mapView.yMax >= 0;
+    const yAxisInView = mapView.xMin <= 0 && mapView.xMax >= 0;
+    const [, xAxisYPxRaw] = worldToCanvas(0, xAxisInView ? 0 : mapView.yMin, canvas);
+    const [yAxisXPxRaw] = worldToCanvas(yAxisInView ? 0 : mapView.xMin, 0, canvas);
+    const xAxisYPx = clamp(xAxisYPxRaw, 0, h);
+    const yAxisXPx = clamp(yAxisXPxRaw, 0, w);
+
+    // Draw major axes to make labels readable.
+    ctx.strokeStyle = isDark ? 'rgba(148,163,184,0.35)' : 'rgba(71,85,105,0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, xAxisYPx);
+    ctx.lineTo(w, xAxisYPx);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(yAxisXPx, 0);
+    ctx.lineTo(yAxisXPx, h);
+    ctx.stroke();
+
+    // X-axis numeric labels
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let gx = Math.ceil(mapView.xMin / labelStep) * labelStep; gx <= mapView.xMax; gx += labelStep) {
+        const [px] = worldToCanvas(gx, 0, canvas);
+        if (px < -20 || px > w + 20) continue;
+
+        const tickY1 = clamp(xAxisYPx - 3, 0, h);
+        const tickY2 = clamp(xAxisYPx + 3, 0, h);
+        ctx.beginPath();
+        ctx.moveTo(px, tickY1);
+        ctx.lineTo(px, tickY2);
+        ctx.stroke();
+
+        const text = formatAxisValue(gx, labelStep);
+        const yText = xAxisYPx > h - 18 ? xAxisYPx - 14 : xAxisYPx + 5;
+        ctx.fillText(text, px, yText);
     }
-    for (let gy = 0; gy <= MAP_RANGE.yMax; gy += 1) {
-        const [px, py] = worldToCanvas(0, gy, canvas);
-        ctx.fillText(gy.toString(), px + 3, py - 3);
+
+    // Y-axis numeric labels
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    for (let gy = Math.ceil(mapView.yMin / labelStep) * labelStep; gy <= mapView.yMax; gy += labelStep) {
+        const [, py] = worldToCanvas(0, gy, canvas);
+        if (py < -10 || py > h + 10) continue;
+        const text = formatAxisValue(gy, labelStep);
+        const xText = yAxisXPx > w - 36 ? yAxisXPx - 34 : yAxisXPx + 5;
+        ctx.fillText(text, xText, py);
     }
 
     // Obstacles
@@ -376,7 +528,7 @@ function drawMap() {
     for (const obs of vizState.obstacles) {
         if (obs.type === 'circle') {
             const [cx, cy] = worldToCanvas(obs.cx, obs.cy, canvas);
-            const r = obs.radius * w / (MAP_RANGE.xMax - MAP_RANGE.xMin);
+            const r = obs.radius * uniformScale;
             ctx.fillStyle = obsColor;
             ctx.strokeStyle = obsStroke;
             ctx.lineWidth = 1.5;
@@ -399,9 +551,8 @@ function drawMap() {
     if (vizState.object) {
         const [ox, oy, ol, ow_] = vizState.object;
         const [cx, cy] = worldToCanvas(ox, oy, canvas);
-        const scale = w / (MAP_RANGE.xMax - MAP_RANGE.xMin);
-        const rw = ol * scale,
-            rh = ow_ * scale;
+        const rw = ol * sx,
+            rh = ow_ * sy;
         ctx.fillStyle = isDark ? 'rgba(251,191,36,0.3)' : 'rgba(230,140,0,0.2)';
         ctx.strokeStyle = '#fbbf24';
         ctx.lineWidth = 2;
@@ -445,12 +596,11 @@ function drawMap() {
     if (vizState.formation_circle) {
         const [fcx, fcy, fr] = vizState.formation_circle;
         const [cx, cy] = worldToCanvas(fcx, fcy, canvas);
-        const scale = w / (MAP_RANGE.xMax - MAP_RANGE.xMin);
         ctx.strokeStyle = isDark ? 'rgba(100,200,255,0.3)' : 'rgba(60,130,200,0.3)';
         ctx.lineWidth = 1;
         ctx.setLineDash([5, 5]);
         ctx.beginPath();
-        ctx.arc(cx, cy, fr * scale, 0, Math.PI * 2);
+        ctx.arc(cx, cy, fr * uniformScale, 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
     }
@@ -510,8 +660,7 @@ function drawMap() {
     for (const [rid, pos] of Object.entries(vizState.positions)) {
         const [rx, ry, theta] = pos;
         const [cx, cy] = worldToCanvas(rx, ry, canvas);
-        const scale = w / (MAP_RANGE.xMax - MAP_RANGE.xMin);
-        const robotR = 0.15 * scale;
+        const robotR = 0.15 * uniformScale;
         const color = ROBOT_COLORS[parseInt(rid)] || '#fff';
 
         // Body
@@ -525,8 +674,9 @@ function drawMap() {
 
         // Direction arrow
         const arrowLen = robotR * 1.3;
-        const ax = cx + arrowLen * Math.cos(-theta + Math.PI / 2);
-        const ay = cy + arrowLen * Math.sin(-theta + Math.PI / 2);
+        // Convert world heading (x-right, y-up) into canvas space (x-right, y-down).
+        const ax = cx + arrowLen * Math.cos(theta);
+        const ay = cy - arrowLen * Math.sin(theta);
         ctx.strokeStyle = color;
         ctx.lineWidth = 2.5;
         ctx.beginPath();
@@ -552,6 +702,7 @@ function drawMap() {
 }
 
 function resetMapView() {
+    resetMapCamera();
     // Reset all viz state to defaults
     vizState.positions = {};
     vizState.trajectories = {};
@@ -665,6 +816,12 @@ function updateHeading(rid, value) {
     if (rid === selectedRobot) {
         const el = document.getElementById('heading-value');
         if (el) el.textContent = value.toFixed(1) + '°';
+    }
+
+    const card = document.querySelector(`.sensor-card[data-rid="${rid}"]`);
+    if (card) {
+        const headingEl = card.querySelector('.heading');
+        if (headingEl) headingEl.textContent = value.toFixed(1) + '°';
     }
 }
 
@@ -1236,6 +1393,7 @@ async function loadProfiles() {
 window.addEventListener('DOMContentLoaded', () => {
     initTheme();
     document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
+    initMapInteractions();
     buildSensorGrid();
     buildConnectionPanels();
     buildMotorGrid();

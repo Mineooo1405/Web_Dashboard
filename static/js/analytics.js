@@ -355,7 +355,9 @@ const Analytics = (() => {
             if (infoEl) {
                 const sg = sessionGroups[sid];
                 const types = sg ? Object.keys(sg.files).join(', ') : '';
-                infoEl.textContent = `✓ Session ${formatSid(sid)} re-activated  [${types}]`;
+                const a = sessionCache[sid].posAnalysis;
+                const ekfInfo = a ? ` | EKF ${a.ekfRows}/${a.parsedRows}` : '';
+                infoEl.textContent = `✓ Session ${formatSid(sid)} re-activated  [${types}]${ekfInfo}`;
             }
             return;
         }
@@ -372,8 +374,11 @@ const Analytics = (() => {
         ]);
 
         const cache = { sid };
-        if (posData) { cache.posHeaders = posData.headers;
-            cache.posRows = posData.rows; }
+        if (posData) {
+            cache.posHeaders = posData.headers;
+            cache.posRows = posData.rows;
+            cache.posAnalysis = analyzePositionRows(posData.headers, posData.rows);
+        }
         if (imuData) { cache.imuHeaders = imuData.headers;
             cache.imuRows = imuData.rows; }
         sessionCache[sid] = cache;
@@ -383,8 +388,10 @@ const Analytics = (() => {
         const loadedTypes = [];
         if (posData) loadedTypes.push(`position (${posData.rows.length} rows)`);
         if (imuData) loadedTypes.push(`imu (${imuData.rows.length} rows)`);
+        const a = cache.posAnalysis;
+        const ekfInfo = a ? ` | EKF ${a.ekfRows}/${a.parsedRows}` : '';
         if (infoEl) infoEl.textContent = loadedTypes.length ?
-            `✓ Session ${formatSid(sid)} loaded — ${loadedTypes.join(', ')}` :
+            `✓ Session ${formatSid(sid)} loaded — ${loadedTypes.join(', ')}${ekfInfo}` :
             `⚠ Session ${formatSid(sid)}: no usable data found.`;
 
         // Refresh dropdown labels to show ✓ for cached sessions
@@ -423,8 +430,12 @@ const Analytics = (() => {
         }
 
         if (cache.posHeaders && cache.posRows) {
+            cache.posAnalysis = analyzePositionRows(cache.posHeaders, cache.posRows);
+            renderLogInsights(cache.posAnalysis);
             prepareReplay(cache.posHeaders, cache.posRows);
             computeMetrics(cache.posRows, cache.posHeaders);
+        } else {
+            renderLogInsights(null);
         }
         if (cache.imuHeaders && cache.imuRows) {
             loadBNO055ToChart(cache.imuHeaders, cache.imuRows);
@@ -457,48 +468,472 @@ const Analytics = (() => {
         if (infoEl) {
             const sg = sessionGroups[sid];
             const types = sg ? Object.keys(sg.files).join(', ') : '';
+            const cache = sessionCache[sid] || {};
+            const a = cache.posAnalysis;
+            const ekfInfo = a ? ` | EKF ${a.ekfRows}/${a.parsedRows}` : '';
             infoEl.textContent = `✓ Switched to session ${formatSid(sid)}  [${types}]`;
+            if (ekfInfo) infoEl.textContent += ekfInfo;
         }
     }
 
     // ============================================================
     // Helpers
     // ============================================================
-    // New-format files have 'source' in the header → no offset needed.
-    // Legacy files have a hidden type column at index 1 not in the header → offset = 1.
-    function detectTypeOffset(headers, rows) {
-        if (headers && headers.indexOf('source') !== -1) return 0;
-        if (!rows || rows.length === 0) return 0;
-        const v = (rows[0][1] || '').trim();
-        return isNaN(parseFloat(v)) ? 1 : 0;
+    function isFiniteNumber(v) {
+        return Number.isFinite(v);
+    }
+
+    function isEKFSource(source) {
+        if (!source) return false;
+        const s = String(source).trim().toLowerCase();
+        return s === 'ekf' || s.includes('ekf');
+    }
+
+    // Supports mixed datasets observed in logs:
+    // 1) time, source, x, y, vx, vy                     (6 cols)
+    // 2) time, source, x, y, theta, vx, vy             (7 cols)
+    // 3) time, source, x, y, vx, vy, theta, pos, vel   (9 cols)
+    // 4) legacy rows without source token               (time, x, y, theta, vx, vy)
+    function parsePositionRow(headers, row) {
+        if (!row || row.length < 3) return null;
+
+        const t = parseFloat((row[0] || '').trim());
+        if (!isFiniteNumber(t)) return null;
+
+        const col1 = (row[1] || '').trim();
+        const hasSourceToken = col1 !== '' && !isFiniteNumber(parseFloat(col1));
+        let source = 'unknown';
+        let x = NaN;
+        let y = NaN;
+        let theta = 0;
+        let vx = 0;
+        let vy = 0;
+
+        if (hasSourceToken) {
+            source = col1.toLowerCase();
+            x = parseFloat((row[2] || '').trim());
+            y = parseFloat((row[3] || '').trim());
+
+            if (isEKFSource(source)) {
+                if (row.length >= 9) {
+                    // Legacy EKF payload: x, y, vx, vy, theta, ...
+                    vx = parseFloat((row[4] || '').trim());
+                    vy = parseFloat((row[5] || '').trim());
+                    theta = parseFloat((row[6] || '').trim());
+                } else if (row.length >= 7) {
+                    // Mixed 7-col EKF layouts observed:
+                    // A) x,y,theta,vx,vy  or  B) x,y,vx,vy,theta
+                    const c4 = parseFloat((row[4] || '').trim());
+                    const c5 = parseFloat((row[5] || '').trim());
+                    const c6 = parseFloat((row[6] || '').trim());
+
+                    const abs4 = Math.abs(c4 || 0);
+                    const abs5 = Math.abs(c5 || 0);
+                    const abs6 = Math.abs(c6 || 0);
+                    const looksAngle4 = abs4 > 1.5 && abs5 < 1.0 && abs6 < 1.0;
+                    const looksAngle6 = abs6 > 1.5 && abs4 < 1.0 && abs5 < 1.0;
+
+                    if (looksAngle6) {
+                        vx = c4;
+                        vy = c5;
+                        theta = c6;
+                    } else if (looksAngle4) {
+                        theta = c4;
+                        vx = c5;
+                        vy = c6;
+                    } else {
+                        const speedA = Math.hypot(c5 || 0, c6 || 0); // theta,vx,vy
+                        const speedB = Math.hypot(c4 || 0, c5 || 0); // vx,vy,theta
+                        if (speedB < speedA) {
+                            vx = c4;
+                            vy = c5;
+                            theta = c6;
+                        } else {
+                            theta = c4;
+                            vx = c5;
+                            vy = c6;
+                        }
+                    }
+                } else if (row.length >= 6) {
+                    // Minimal source payload: x, y, vx, vy
+                    vx = parseFloat((row[4] || '').trim());
+                    vy = parseFloat((row[5] || '').trim());
+                }
+            } else {
+                // optical_flow / odometry rows can be 6-col (x,y,vx,vy) or 7-col (x,y,theta,vx,vy)
+                if (row.length >= 7) {
+                    theta = parseFloat((row[4] || '').trim());
+                    vx = parseFloat((row[5] || '').trim());
+                    vy = parseFloat((row[6] || '').trim());
+                } else if (row.length >= 6) {
+                    vx = parseFloat((row[4] || '').trim());
+                    vy = parseFloat((row[5] || '').trim());
+                }
+            }
+        } else {
+            // Legacy rows without source token
+            source = 'ekf';
+            x = parseFloat((row[1] || '').trim());
+            y = parseFloat((row[2] || '').trim());
+            if (row.length >= 6) {
+                theta = parseFloat((row[3] || '').trim());
+                vx = parseFloat((row[4] || '').trim());
+                vy = parseFloat((row[5] || '').trim());
+            } else if (row.length >= 5) {
+                vx = parseFloat((row[3] || '').trim());
+                vy = parseFloat((row[4] || '').trim());
+            }
+        }
+
+        if (!isFiniteNumber(x) || !isFiniteNumber(y)) return null;
+
+        return {
+            t,
+            source,
+            rowCols: row.length,
+            x,
+            y,
+            theta: isFiniteNumber(theta) ? theta : 0,
+            vx: isFiniteNumber(vx) ? vx : 0,
+            vy: isFiniteNumber(vy) ? vy : 0,
+        };
+    }
+
+    function parsePositionRows(headers, rows, opts = {}) {
+        const onlyEkf = !!opts.onlyEkf;
+        const pts = [];
+
+        (rows || []).forEach(r => {
+            const p = parsePositionRow(headers, r);
+            if (!p) return;
+            if (onlyEkf && !isEKFSource(p.source)) return;
+            pts.push(p);
+        });
+
+        pts.sort((a, b) => a.t - b.t);
+        return pts;
+    }
+
+    // Some sessions log a long EKF placeholder at origin before actual map lock.
+    // Trim only when there is a sufficiently long leading near-origin streak and later points move away.
+    function trimLeadingOriginRows(points, opts = {}) {
+        if (!Array.isArray(points) || points.length < 3) return points || [];
+
+        const minLeadingRows = Number.isFinite(opts.minLeadingRows) ? opts.minLeadingRows : 8;
+        const nearOriginPosEps = Number.isFinite(opts.nearOriginPosEps) ? opts.nearOriginPosEps : 0.02;
+        const nearOriginVelEps = Number.isFinite(opts.nearOriginVelEps) ? opts.nearOriginVelEps : 0.02;
+        const unlockRadius = Number.isFinite(opts.unlockRadius) ? opts.unlockRadius : 0.25;
+        const longOriginRows = Number.isFinite(opts.longOriginRows) ? opts.longOriginRows : 100;
+        const postOriginRadiusFactor = Number.isFinite(opts.postOriginRadiusFactor) ? opts.postOriginRadiusFactor : 0.15;
+        const postOriginMinRadius = Number.isFinite(opts.postOriginMinRadius) ? opts.postOriginMinRadius : 0.05;
+
+        let cut = 0;
+        while (cut < points.length) {
+            const p = points[cut];
+            const posNorm = Math.hypot(p.x || 0, p.y || 0);
+            const velNorm = Math.hypot(p.vx || 0, p.vy || 0);
+            if (posNorm <= nearOriginPosEps && velNorm <= nearOriginVelEps) cut += 1;
+            else break;
+        }
+
+        if (cut < minLeadingRows || cut >= points.length - 1) return points;
+
+        const hasFarPoint = points.slice(cut).some((p) => Math.hypot(p.x || 0, p.y || 0) >= unlockRadius);
+        if (!hasFarPoint) return points;
+
+        let trimmed = points.slice(cut);
+
+        // If origin streak is very long, skip the low-radius startup ramp as well.
+        if (cut >= longOriginRows && trimmed.length > 2) {
+            const maxRadius = trimmed.reduce((m, p) => Math.max(m, Math.hypot(p.x || 0, p.y || 0)), 0);
+            const startupRadius = Math.max(postOriginMinRadius, maxRadius * postOriginRadiusFactor);
+
+            let rampCut = 0;
+            while (rampCut < trimmed.length) {
+                const p = trimmed[rampCut];
+                const r = Math.hypot(p.x || 0, p.y || 0);
+                if (r < startupRadius) rampCut += 1;
+                else break;
+            }
+
+            if (rampCut > 0 && rampCut < trimmed.length - 1) {
+                trimmed = trimmed.slice(rampCut);
+            }
+        }
+
+        return trimmed;
+    }
+
+    function getConfiguredSpeedProfile() {
+        const aEl = document.getElementById('approach-vel');
+        const tEl = document.getElementById('transport-vel');
+        const a = parseFloat(aEl ? aEl.value : '');
+        const t = parseFloat(tEl ? tEl.value : '');
+
+        const candidates = [a, t].filter((v) => Number.isFinite(v) && v > 0);
+        const nominal = candidates.length > 0 ? Math.max(...candidates) : 0.2;
+
+        return {
+            nominal,
+            movingThreshold: Math.max(0.01, nominal * 0.08),
+            maxReasonable: Math.max(0.3, nominal * 2.0),
+            peakCap: Math.max(0.25, nominal * 1.4),
+        };
+    }
+
+    function analyzePositionRows(headers, rows) {
+        const sourceCounts = {};
+        const schemaCounts = {};
+        let totalRows = 0;
+        let parsedRows = 0;
+        let ekfRows = 0;
+        let nonEkfRows = 0;
+        let nonZeroRows = 0;
+        let nonZeroEkfRows = 0;
+
+        (rows || []).forEach(r => {
+            totalRows += 1;
+            const cols = Array.isArray(r) ? r.length : 0;
+            schemaCounts[cols] = (schemaCounts[cols] || 0) + 1;
+
+            const p = parsePositionRow(headers, r);
+            if (!p) return;
+            parsedRows += 1;
+
+            const src = p.source || 'unknown';
+            sourceCounts[src] = (sourceCounts[src] || 0) + 1;
+
+            const moved = Math.abs(p.x) + Math.abs(p.y) > 1e-9;
+            if (moved) nonZeroRows += 1;
+
+            if (isEKFSource(src)) {
+                ekfRows += 1;
+                if (moved) nonZeroEkfRows += 1;
+            } else {
+                nonEkfRows += 1;
+            }
+        });
+
+        const rawEkfPoints = parsePositionRows(headers, rows, { onlyEkf: true });
+        const trimmedEkfPoints = trimLeadingOriginRows(rawEkfPoints);
+        const startupTrimmedRows = Math.max(0, rawEkfPoints.length - trimmedEkfPoints.length);
+
+        return {
+            totalRows,
+            parsedRows,
+            droppedRows: Math.max(0, totalRows - parsedRows),
+            sourceCounts,
+            schemaCounts,
+            ekfRows,
+            ekfRowsAfterTrim: trimmedEkfPoints.length,
+            nonEkfRows,
+            nonZeroRows,
+            nonZeroEkfRows,
+            startupTrimmedRows,
+            replayReady: trimmedEkfPoints.length >= 2,
+        };
+    }
+
+    function renderBadgeMap(obj) {
+        const escapeHtml = (s) => String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        const entries = Object.entries(obj || {}).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+        if (entries.length === 0) return '<span class="text-muted">none</span>';
+        return entries
+            .map(([k, v]) => `<span class="compare-badge" style="margin-right:4px;margin-bottom:4px;display:inline-flex">${escapeHtml(k)}: ${v}</span>`)
+            .join('');
+    }
+
+    function renderLogInsights(stats) {
+        const box = document.getElementById('log-data-insights');
+        if (!box) return;
+
+        if (!stats) {
+            box.innerHTML = '';
+            return;
+        }
+
+        const replayText = stats.replayReady ? 'ready' : 'insufficient EKF rows';
+        const motionText = stats.nonZeroEkfRows > 0 ? `${stats.nonZeroEkfRows} moving EKF rows` : 'EKF rows mostly zero';
+        const trimText = stats.startupTrimmedRows > 0 ? ` | startup rows trimmed: ${stats.startupTrimmedRows}` : '';
+
+        box.innerHTML = `
+            <div class="text-muted" style="font-size:11px;margin-top:8px">Log Insights</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;margin-top:4px">
+                <div>Total rows: <strong>${stats.totalRows}</strong></div>
+                <div>Parsed rows: <strong>${stats.parsedRows}</strong></div>
+                <div>EKF rows: <strong>${stats.ekfRows}</strong></div>
+                <div>Non-EKF rows: <strong>${stats.nonEkfRows}</strong></div>
+                <div>EKF after trim: <strong>${stats.ekfRowsAfterTrim}</strong></div>
+                <div>Dropped rows: <strong>${stats.droppedRows}</strong></div>
+                <div>Replay status: <strong>${replayText}</strong></div>
+            </div>
+            <div class="text-muted" style="font-size:11px;margin-top:6px">${motionText}${trimText}</div>
+            <div style="margin-top:6px">
+                <div class="text-muted" style="font-size:11px;margin-bottom:2px">Sources</div>
+                <div>${renderBadgeMap(stats.sourceCounts)}</div>
+            </div>
+            <div style="margin-top:6px">
+                <div class="text-muted" style="font-size:11px;margin-bottom:2px">Row Column Counts</div>
+                <div>${renderBadgeMap(stats.schemaCounts)}</div>
+            </div>
+        `;
+    }
+
+    function smoothTrajectory(points, windowSize = 5) {
+        if (!points || points.length < 3 || windowSize <= 1) {
+            return points ? points.slice() : [];
+        }
+
+        const half = Math.floor(windowSize / 2);
+        return points.map((p, idx) => {
+            let sx = 0;
+            let sy = 0;
+            let n = 0;
+            const start = Math.max(0, idx - half);
+            const end = Math.min(points.length - 1, idx + half);
+            for (let i = start; i <= end; i++) {
+                sx += points[i].x;
+                sy += points[i].y;
+                n += 1;
+            }
+            return { ...p, x: sx / n, y: sy / n };
+        });
+    }
+
+    function quantile(values, q) {
+        if (!Array.isArray(values) || values.length === 0) return 0;
+        const sorted = values.slice().sort((a, b) => a - b);
+        const clampedQ = Math.max(0, Math.min(1, q));
+        const idx = Math.floor(clampedQ * (sorted.length - 1));
+        return sorted[idx];
+    }
+
+    function computeRobustPathStats(points, opts = {}) {
+        if (!points || points.length < 2) return null;
+
+        const minStepMeters = Number.isFinite(opts.minStepMeters) ? opts.minStepMeters : 0.01;
+        const maxReasonableSpeed = Number.isFinite(opts.maxReasonableSpeed) ? opts.maxReasonableSpeed : 2.0;
+        const smoothWindow = Number.isFinite(opts.smoothWindow) ? opts.smoothWindow : 5;
+        const movingSpeedThreshold = Number.isFinite(opts.movingSpeedThreshold) ? opts.movingSpeedThreshold : 0.02;
+        const speedOutlierFactor = Number.isFinite(opts.speedOutlierFactor) ? opts.speedOutlierFactor : 1.35;
+        const speedPercentile = Number.isFinite(opts.speedPercentile) ? opts.speedPercentile : 0.99;
+        const peakSpeedCap = Number.isFinite(opts.peakSpeedCap) ? opts.peakSpeedCap : (maxReasonableSpeed * speedOutlierFactor);
+
+        const smoothed = smoothTrajectory(points, smoothWindow);
+        const filtered = [smoothed[0]];
+        let totalDist = 0;
+        let speedIntegral = 0;
+        let speedDuration = 0;
+        const speedSamples = [];
+
+        for (let i = 1; i < smoothed.length; i++) {
+            const prev = smoothed[i - 1];
+            const curr = smoothed[i];
+            const dt = curr.t - prev.t;
+            if (dt <= 0) continue;
+
+            const dx = curr.x - prev.x;
+            const dy = curr.y - prev.y;
+            const d = Math.hypot(dx, dy);
+            const speedPos = d / dt;
+
+            const hasPrevVel = Number.isFinite(prev.vx) && Number.isFinite(prev.vy);
+            const hasCurrVel = Number.isFinite(curr.vx) && Number.isFinite(curr.vy);
+            let speedVel = NaN;
+            if (hasPrevVel && hasCurrVel) {
+                speedVel = 0.5 * (Math.hypot(prev.vx, prev.vy) + Math.hypot(curr.vx, curr.vy));
+            } else if (hasCurrVel) {
+                speedVel = Math.hypot(curr.vx, curr.vy);
+            } else if (hasPrevVel) {
+                speedVel = Math.hypot(prev.vx, prev.vy);
+            }
+
+            let speedUsed = Number.isFinite(speedVel) ? speedVel : speedPos;
+            // If EKF velocity is near zero but geometry shows movement, fallback to positional speed.
+            if (Number.isFinite(speedVel) && speedVel < movingSpeedThreshold * 0.5 && speedPos > movingSpeedThreshold * 2) {
+                speedUsed = speedPos;
+            }
+
+            if (d >= minStepMeters && speedPos <= maxReasonableSpeed) {
+                totalDist += d;
+                filtered.push(curr);
+            }
+
+            if (!Number.isFinite(speedUsed)) continue;
+            const speedCap = maxReasonableSpeed * speedOutlierFactor;
+            if (speedUsed > speedCap || speedUsed > peakSpeedCap) continue;
+
+            const speedForMotion = Number.isFinite(speedVel) ? speedUsed : speedPos;
+            const moving = speedForMotion >= movingSpeedThreshold;
+            if (!moving) continue;
+
+            speedSamples.push(speedUsed);
+            speedIntegral += speedUsed * dt;
+            speedDuration += dt;
+        }
+
+        if (filtered.length < 2) {
+            const first = smoothed[0];
+            const last = smoothed[smoothed.length - 1];
+            const d = Math.hypot(last.x - first.x, last.y - first.y);
+            const dt = Math.max(0, last.t - first.t);
+            const fallbackSpeeds = smoothed
+                .map((p) => Number.isFinite(p.vx) && Number.isFinite(p.vy) ? Math.hypot(p.vx, p.vy) : NaN)
+                .filter((v) => Number.isFinite(v));
+            const fallbackMaxRaw = fallbackSpeeds.length > 0 ? quantile(fallbackSpeeds, speedPercentile) : (dt > 0 ? d / dt : 0);
+            const fallbackMax = Math.min(fallbackMaxRaw, peakSpeedCap);
+            return {
+                totalDist: d,
+                avgSpeed: dt > 0 ? d / dt : 0,
+                maxSpeed: fallbackMax,
+                duration: dt,
+                efficiency: d > 0 ? 100 : 0,
+                series: [first, last],
+            };
+        }
+
+        const first = filtered[0];
+        const last = filtered[filtered.length - 1];
+        const duration = Math.max(0, last.t - first.t);
+        const straightDist = Math.hypot(last.x - first.x, last.y - first.y);
+        const avgSpeed = speedDuration > 0 ? speedIntegral / speedDuration : (duration > 0 ? totalDist / duration : 0);
+        const maxSpeedRaw = speedSamples.length > 0 ? quantile(speedSamples, speedPercentile) : 0;
+        const maxSpeed = Math.min(maxSpeedRaw, peakSpeedCap);
+        const efficiency = totalDist > 0 ? Math.max(0, Math.min(100, (straightDist / totalDist) * 100)) : 0;
+
+        return {
+            totalDist,
+            avgSpeed,
+            maxSpeed,
+            duration,
+            efficiency,
+            series: filtered,
+        };
     }
 
     // ============================================================
     // Replay System
     // ============================================================
     function prepareReplay(headers, rows) {
-        // Parse EKF rows with valid x,y
-        replayData = [];
-        const off = detectTypeOffset(headers, rows);
-        const iTime = 0;
-        const iX = headers.indexOf('x') + off;
-        const iY = headers.indexOf('y') + off;
-        const iTheta = headers.indexOf('theta') + off;
-
-        rows.forEach(r => {
-            // Only use EKF rows — skips optical_flow, odometry, localization etc.
-            if (off > 0 && (r[1] || '').trim() !== 'ekf') return;
-            const t = parseFloat(r[iTime]);
-            const x = parseFloat(r[iX]);
-            const y = parseFloat(r[iY]);
-            const theta = parseFloat(r[iTheta]) || 0;
-            if (!isNaN(t) && !isNaN(x) && !isNaN(y)) {
-                replayData.push({ t, x, y, theta });
-            }
-        });
+        // Parse EKF rows then trim leading origin placeholders if present.
+        const rawEkfPts = parsePositionRows(headers, rows, { onlyEkf: true });
+        const ekfPts = trimLeadingOriginRows(rawEkfPts);
+        replayData = ekfPts.map(p => ({ t: p.t, x: p.x, y: p.y, theta: p.theta }));
 
         if (replayData.length === 0) {
-            document.getElementById('log-file-info').textContent += ' (No valid position data for replay)';
+            replayTrail = [];
+            replayIndex = 0;
+            replayPlaying = false;
+            document.getElementById('replay-controls').style.display = 'none';
+            const canvas = document.getElementById('replay-canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            document.getElementById('log-file-info').textContent += ' (No EKF position data for replay)';
             return;
         }
 
@@ -736,14 +1171,27 @@ const Analytics = (() => {
         ctx.restore();
     }
 
+    function resetMetricsUI() {
+        document.getElementById('metric-distance').textContent = '--';
+        document.getElementById('metric-avg-speed').textContent = '--';
+        document.getElementById('metric-max-speed').textContent = '--';
+        document.getElementById('metric-duration').textContent = '--';
+        document.getElementById('metric-efficiency').textContent = '--';
+        document.getElementById('metric-points').textContent = '--';
+    }
+
     // ============================================================
     // BNO055 Log → IMU Chart
     // ============================================================
     function loadBNO055ToChart(headers, rows) {
-        const iTime = headers.indexOf('time');
-        const iHeading = headers.indexOf('heading');
-        const iRoll = headers.indexOf('roll');
-        const iPitch = headers.indexOf('pitch');
+        let iTime = headers.indexOf('time');
+        let iHeading = headers.indexOf('heading');
+        let iRoll = headers.indexOf('roll');
+        let iPitch = headers.indexOf('pitch');
+        if (iTime < 0) iTime = 0;
+        if (iHeading < 0) iHeading = 1;
+        if (iRoll < 0) iRoll = 2;
+        if (iPitch < 0) iPitch = 3;
 
         // Clear and load
         rtIMU = { labels: [], heading: [], ax: [], ay: [], az: [], gx: [], gy: [], gz: [] };
@@ -770,59 +1218,36 @@ const Analytics = (() => {
     // Performance Metrics
     // ============================================================
     function computeMetrics(rows, headers) {
-        const off = detectTypeOffset(headers, rows);
-        const iTime = 0;
-        const iX = headers.indexOf('x') + off;
-        const iY = headers.indexOf('y') + off;
-        const iVx = headers.indexOf('vx') + off;
-        const iVy = headers.indexOf('vy') + off;
+        const rawPts = parsePositionRows(headers, rows, { onlyEkf: true });
+        const pts = trimLeadingOriginRows(rawPts);
+        const speedProfile = getConfiguredSpeedProfile();
 
-        // Only use EKF rows — skips optical_flow, odometry, localization etc.
-        const pts = [];
-        rows.forEach(r => {
-            if (off > 0 && (r[1] || '').trim() !== 'ekf') return;
-            const t = parseFloat(r[iTime]);
-            const x = parseFloat(r[iX]);
-            const y = parseFloat(r[iY]);
-            if (!isNaN(t) && !isNaN(x) && !isNaN(y)) {
-                const vx = parseFloat(r[iVx]) || 0;
-                const vy = parseFloat(r[iVy]) || 0;
-                pts.push({ t, x, y, vx, vy });
-            }
-        });
-
-        if (pts.length < 2) return null;
-
-        // Total distance
-        let totalDist = 0;
-        let speeds = [];
-        for (let i = 1; i < pts.length; i++) {
-            const dx = pts[i].x - pts[i - 1].x;
-            const dy = pts[i].y - pts[i - 1].y;
-            const d = Math.sqrt(dx * dx + dy * dy);
-            totalDist += d;
-            const dt = pts[i].t - pts[i - 1].t;
-            if (dt > 0) speeds.push(d / dt);
+        if (pts.length < 2) {
+            resetMetricsUI();
+            clearPositionChart();
+            clearVelocityChart();
+            return null;
         }
 
-        const duration = pts[pts.length - 1].t - pts[0].t;
-        const avgSpeed = duration > 0 ? totalDist / duration : 0;
-        const maxSpeed = speeds.length > 0 ? Math.max(...speeds) : 0;
-
-        // Path efficiency: straight-line / actual
-        const straightDist = Math.sqrt(
-            Math.pow(pts[pts.length - 1].x - pts[0].x, 2) +
-            Math.pow(pts[pts.length - 1].y - pts[0].y, 2)
-        );
-        const efficiency = totalDist > 0 ? (straightDist / totalDist) * 100 : 0;
+        // Robust metrics: smooth trajectory, suppress jitter and implausible jumps.
+        const stats = computeRobustPathStats(pts, {
+            smoothWindow: 5,
+            minStepMeters: 0.01,
+            movingSpeedThreshold: speedProfile.movingThreshold,
+            maxReasonableSpeed: speedProfile.maxReasonable,
+            peakSpeedCap: speedProfile.peakCap,
+            speedOutlierFactor: 1.25,
+            speedPercentile: 0.98,
+        });
+        if (!stats) return null;
 
         const metrics = {
-            totalDist: totalDist.toFixed(3),
-            avgSpeed: avgSpeed.toFixed(4),
-            maxSpeed: maxSpeed.toFixed(4),
-            duration: duration.toFixed(1),
-            efficiency: efficiency.toFixed(1),
-            points: pts.length
+            totalDist: stats.totalDist.toFixed(3),
+            avgSpeed: stats.avgSpeed.toFixed(4),
+            maxSpeed: stats.maxSpeed.toFixed(4),
+            duration: stats.duration.toFixed(1),
+            efficiency: stats.efficiency.toFixed(1),
+            points: stats.series.length
         };
 
         // Update UI
@@ -835,10 +1260,11 @@ const Analytics = (() => {
 
         // Also load position data into position chart
         clearPositionChart();
-        const step = Math.max(1, Math.floor(pts.length / 500));
-        for (let i = 0; i < pts.length; i += step) {
-            const p = pts[i];
-            rtPosition.labels.push((p.t - pts[0].t).toFixed(1));
+        const chartPts = stats.series;
+        const step = Math.max(1, Math.floor(chartPts.length / 500));
+        for (let i = 0; i < chartPts.length; i += step) {
+            const p = chartPts[i];
+            rtPosition.labels.push((p.t - chartPts[0].t).toFixed(1));
             rtPosition.x.push(p.x);
             rtPosition.y.push(p.y);
         }
@@ -851,12 +1277,23 @@ const Analytics = (() => {
 
         // Velocity chart from data
         clearVelocityChart();
-        for (let i = 0; i < pts.length; i += step) {
-            const p = pts[i];
-            rtVelocity.labels.push((p.t - pts[0].t).toFixed(1));
-            rtVelocity.vx.push(p.vx);
-            rtVelocity.vy.push(p.vy);
-            rtVelocity.speed.push(Math.sqrt(p.vx * p.vx + p.vy * p.vy));
+        for (let i = 0; i < chartPts.length; i += step) {
+            const p = chartPts[i];
+            const prev = i > 0 ? chartPts[i - 1] : chartPts[i];
+            const dt = Math.max(1e-6, p.t - prev.t);
+            const vxPos = i > 0 ? (p.x - prev.x) / dt : 0;
+            const vyPos = i > 0 ? (p.y - prev.y) / dt : 0;
+            let vx = Number.isFinite(p.vx) ? p.vx : vxPos;
+            let vy = Number.isFinite(p.vy) ? p.vy : vyPos;
+            // Fallback when logged velocity is zero but geometric movement is evident.
+            if ((Math.abs(vx) + Math.abs(vy) < 1e-6) && Math.hypot(vxPos, vyPos) > 0.05) {
+                vx = vxPos;
+                vy = vyPos;
+            }
+            rtVelocity.labels.push((p.t - chartPts[0].t).toFixed(1));
+            rtVelocity.vx.push(vx);
+            rtVelocity.vy.push(vy);
+            rtVelocity.speed.push(Math.sqrt(vx * vx + vy * vy));
         }
         if (velocityChart) {
             velocityChart.data.labels = rtVelocity.labels;
@@ -896,50 +1333,48 @@ const Analytics = (() => {
         const cache = sessionCache[sid];
         if (!cache.posHeaders) return;
 
-        const off = detectTypeOffset(cache.posHeaders, cache.posRows);
-        const iTime = 0;
-        const iX = cache.posHeaders.indexOf('x') + off;
-        const iY = cache.posHeaders.indexOf('y') + off;
+        const data = parsePositionRows(cache.posHeaders, cache.posRows, { onlyEkf: true })
+            .map(p => ({ t: p.t, x: p.x, y: p.y, vx: p.vx, vy: p.vy }));
 
-        const data = [];
-        cache.posRows.forEach(r => {
-            if (off > 0 && (r[1] || '').trim() !== 'ekf') return;
-            const t = parseFloat(r[iTime]);
-            const x = parseFloat(r[iX]);
-            const y = parseFloat(r[iY]);
-            if (!isNaN(t) && !isNaN(x) && !isNaN(y)) data.push({ t, x, y });
-        });
+        const trimmedData = trimLeadingOriginRows(data);
+        const compData = trimmedData.map(p => ({ t: p.t, x: p.x, y: p.y, vx: p.vx, vy: p.vy }));
 
-        if (data.length === 0) return;
+        if (compData.length === 0) return;
 
         const color = COMP_COLORS[compSessions.length % COMP_COLORS.length];
-        const metrics = computeSessionMetrics(data);
+        const metrics = computeSessionMetrics(compData);
         const sg = sessionGroups[sid];
-        compSessions.push({ sid, filename: (sg && sg.files.position) || sid, color, data, metrics });
+        compSessions.push({ sid, filename: (sg && sg.files.position) || sid, color, data: compData, metrics });
         renderComparisonUI();
         drawReplayFrame();
     }
 
     function computeSessionMetrics(data) {
-        let totalDist = 0;
-        for (let i = 1; i < data.length; i++) {
-            const dx = data[i].x - data[i - 1].x;
-            const dy = data[i].y - data[i - 1].y;
-            totalDist += Math.sqrt(dx * dx + dy * dy);
+        const speedProfile = getConfiguredSpeedProfile();
+        const stats = computeRobustPathStats(data, {
+            smoothWindow: 5,
+            minStepMeters: 0.01,
+            movingSpeedThreshold: speedProfile.movingThreshold,
+            maxReasonableSpeed: speedProfile.maxReasonable,
+            peakSpeedCap: speedProfile.peakCap,
+            speedOutlierFactor: 1.25,
+            speedPercentile: 0.98,
+        });
+        if (!stats) {
+            return {
+                totalDist: '0.000',
+                avgSpeed: '0.0000',
+                duration: '0.0',
+                efficiency: '0.0',
+                points: data.length,
+            };
         }
-        const duration = data[data.length - 1].t - data[0].t;
-        const avgSpeed = duration > 0 ? totalDist / duration : 0;
-        const straightDist = Math.sqrt(
-            Math.pow(data[data.length - 1].x - data[0].x, 2) +
-            Math.pow(data[data.length - 1].y - data[0].y, 2)
-        );
-        const efficiency = totalDist > 0 ? (straightDist / totalDist) * 100 : 0;
         return {
-            totalDist: totalDist.toFixed(3),
-            avgSpeed: avgSpeed.toFixed(4),
-            duration: duration.toFixed(1),
-            efficiency: efficiency.toFixed(1),
-            points: data.length
+            totalDist: stats.totalDist.toFixed(3),
+            avgSpeed: stats.avgSpeed.toFixed(4),
+            duration: stats.duration.toFixed(1),
+            efficiency: stats.efficiency.toFixed(1),
+            points: stats.series.length
         };
     }
 
