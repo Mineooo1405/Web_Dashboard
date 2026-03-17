@@ -509,6 +509,16 @@ const Analytics = (() => {
         return s === 'ekf' || s.includes('ekf');
     }
 
+    function normalizeSourceName(source) {
+        const s = String(source || '').trim().toLowerCase();
+        if (!s) return 'unknown';
+        if (isEKFSource(s)) return 'ekf';
+        if (s === 'odometry' || s === 'odom') return 'odometry';
+        if (s === 'optical_flow' || s === 'opticalflow' || s === 'optical-flow') return 'optical_flow';
+        if (s === 'localize' || s === 'localization' || s === 'loc') return 'localize';
+        return s;
+    }
+
     // Supports mixed datasets observed in logs:
     // 1) time, source, x, y, vx, vy                     (6 cols)
     // 2) time, source, x, y, theta, vx, vy             (7 cols)
@@ -891,6 +901,12 @@ const Analytics = (() => {
     function analyzePositionRows(headers, rows) {
         const sourceCounts = {};
         const schemaCounts = {};
+        const sourceBuckets = {
+            ekf: { count: 0, minT: Infinity, maxT: -Infinity },
+            odometry: { count: 0, minT: Infinity, maxT: -Infinity },
+            optical_flow: { count: 0, minT: Infinity, maxT: -Infinity },
+            localize: { count: 0, minT: Infinity, maxT: -Infinity },
+        };
         const headerIndex = buildHeaderIndex(headers);
         let totalRows = 0;
         let parsedRows = 0;
@@ -898,6 +914,8 @@ const Analytics = (() => {
         let nonEkfRows = 0;
         let nonZeroRows = 0;
         let nonZeroEkfRows = 0;
+        let globalMinT = Infinity;
+        let globalMaxT = -Infinity;
 
         (rows || []).forEach(r => {
             totalRows += 1;
@@ -908,8 +926,16 @@ const Analytics = (() => {
             if (!p) return;
             parsedRows += 1;
 
-            const src = p.source || 'unknown';
+            const src = normalizeSourceName(p.source || 'unknown');
             sourceCounts[src] = (sourceCounts[src] || 0) + 1;
+
+            globalMinT = Math.min(globalMinT, p.t);
+            globalMaxT = Math.max(globalMaxT, p.t);
+            if (Object.prototype.hasOwnProperty.call(sourceBuckets, src)) {
+                sourceBuckets[src].count += 1;
+                sourceBuckets[src].minT = Math.min(sourceBuckets[src].minT, p.t);
+                sourceBuckets[src].maxT = Math.max(sourceBuckets[src].maxT, p.t);
+            }
 
             const moved = Math.abs(p.x) + Math.abs(p.y) > 1e-9;
             if (moved) nonZeroRows += 1;
@@ -925,12 +951,26 @@ const Analytics = (() => {
         const rawEkfPoints = parsePositionRows(headers, rows, { onlyEkf: true });
         const trimmedEkfPoints = trimLeadingOriginRows(rawEkfPoints);
         const startupTrimmedRows = Math.max(0, rawEkfPoints.length - trimmedEkfPoints.length);
+        const globalDuration = (globalMaxT > globalMinT) ? (globalMaxT - globalMinT) : 0;
+
+        const sourceRatesHz = {};
+        Object.keys(sourceBuckets).forEach((k) => {
+            const b = sourceBuckets[k];
+            if (b.count <= 0) {
+                sourceRatesHz[k] = 0;
+                return;
+            }
+            const ownDuration = (b.maxT > b.minT) ? (b.maxT - b.minT) : 0;
+            const duration = ownDuration > 0 ? ownDuration : globalDuration;
+            sourceRatesHz[k] = duration > 0 ? (b.count / duration) : 0;
+        });
 
         return {
             totalRows,
             parsedRows,
             droppedRows: Math.max(0, totalRows - parsedRows),
             sourceCounts,
+            sourceRatesHz,
             schemaCounts,
             ekfRows,
             ekfRowsAfterTrim: trimmedEkfPoints.length,
@@ -954,6 +994,15 @@ const Analytics = (() => {
         return entries
             .map(([k, v]) => `<span class="compare-badge" style="margin-right:4px;margin-bottom:4px;display:inline-flex">${escapeHtml(k)}: ${v}</span>`)
             .join('');
+    }
+
+    function renderSourceFrequencyBadges(stats) {
+        const keys = ['ekf', 'odometry', 'optical_flow', 'localize'];
+        return keys.map((k) => {
+            const count = (stats.sourceCounts && Number.isFinite(stats.sourceCounts[k])) ? stats.sourceCounts[k] : 0;
+            const hz = (stats.sourceRatesHz && Number.isFinite(stats.sourceRatesHz[k])) ? stats.sourceRatesHz[k] : 0;
+            return `<span class="compare-badge" style="margin-right:4px;margin-bottom:4px;display:inline-flex">${k}: ${count} (${hz.toFixed(2)} Hz)</span>`;
+        }).join('');
     }
 
     function renderLogInsights(stats) {
@@ -983,7 +1032,7 @@ const Analytics = (() => {
             <div class="text-muted" style="font-size:11px;margin-top:6px">${motionText}${trimText}</div>
             <div style="margin-top:6px">
                 <div class="text-muted" style="font-size:11px;margin-bottom:2px">Sources</div>
-                <div>${renderBadgeMap(stats.sourceCounts)}</div>
+                <div>${renderSourceFrequencyBadges(stats)}</div>
             </div>
             <div style="margin-top:6px">
                 <div class="text-muted" style="font-size:11px;margin-bottom:2px">Row Column Counts</div>
