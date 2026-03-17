@@ -419,6 +419,29 @@ async def get_log(filename: str):
     return FileResponse(filepath, media_type='text/csv')
 
 
+@app.get("/api/trajectory-logs")
+async def list_trajectory_logs():
+    """List all planned trajectory files in trajectory_logs/ directory"""
+    traj_dir = os.path.join(os.path.dirname(__file__), 'trajectory_logs')
+    if not os.path.isdir(traj_dir):
+        return []
+    files = [f for f in os.listdir(traj_dir) if f.endswith('.txt')]
+    files.sort(reverse=True)
+    return files
+
+
+@app.get("/api/trajectory-logs/{filename}")
+async def get_trajectory_log(filename: str):
+    """Return raw planned trajectory file content"""
+    traj_dir = os.path.join(os.path.dirname(__file__), 'trajectory_logs')
+    filepath = os.path.join(traj_dir, filename)
+    if not os.path.realpath(filepath).startswith(os.path.realpath(traj_dir)):
+        return PlainTextResponse("Forbidden", status_code=403)
+    if not os.path.isfile(filepath):
+        return PlainTextResponse("Not found", status_code=404)
+    return FileResponse(filepath, media_type='text/plain')
+
+
 # ============================================================
 # Arm Kinematics API  (IK / FK simulation — browser-side viz)
 # ============================================================

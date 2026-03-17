@@ -13,6 +13,8 @@ const Analytics = (() => {
     let sessionGroups = {};
     // sessionCache: { sid: { posHeaders, posRows, imuHeaders, imuRows } }
     let sessionCache = {};
+    let trajectoryLogFiles = [];
+    let trajectoryCache = {};
     let activeSessionId = null;
 
     // Log data
@@ -333,10 +335,24 @@ const Analytics = (() => {
                 `${sids.length} session(s) found (${files.length} files)` :
                 'No log files found.';
 
+            await refreshTrajectoryLogList();
+
             renderLoadedSessionsUI();
         } catch (e) {
             console.error('Failed to fetch log files:', e);
             if (infoEl) infoEl.textContent = `⚠ Cannot reach server: ${e.message}`;
+        }
+    }
+
+    async function refreshTrajectoryLogList() {
+        try {
+            const resp = await fetch('/api/trajectory-logs');
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const files = await resp.json();
+            trajectoryLogFiles = Array.isArray(files) ? files : [];
+        } catch (e) {
+            console.warn('Failed to fetch trajectory logs:', e);
+            trajectoryLogFiles = [];
         }
     }
 
@@ -351,7 +367,7 @@ const Analytics = (() => {
 
         // If already cached, just re-activate — no network requests needed
         if (sessionCache[sid]) {
-            activateSession(sid);
+            await activateSession(sid);
             if (infoEl) {
                 const sg = sessionGroups[sid];
                 const types = sg ? Object.keys(sg.files).join(', ') : '';
@@ -383,7 +399,7 @@ const Analytics = (() => {
             cache.imuRows = imuData.rows; }
         sessionCache[sid] = cache;
 
-        activateSession(sid);
+        await activateSession(sid);
 
         const loadedTypes = [];
         if (posData) loadedTypes.push(`position (${posData.rows.length} rows)`);
@@ -416,7 +432,7 @@ const Analytics = (() => {
     }
 
     // Activate a cached session: load its data into replay, metrics, and charts
-    function activateSession(sid) {
+    async function activateSession(sid) {
         activeSessionId = sid;
         const cache = sessionCache[sid];
         if (!cache) return;
@@ -429,11 +445,13 @@ const Analytics = (() => {
             chartsInited = true;
         }
 
+        const planned = await getPlannedTrajectoryForSession(sid);
+
         if (cache.posHeaders && cache.posRows) {
             cache.posAnalysis = analyzePositionRows(cache.posHeaders, cache.posRows);
             renderLogInsights(cache.posAnalysis);
             prepareReplay(cache.posHeaders, cache.posRows);
-            computeMetrics(cache.posRows, cache.posHeaders);
+            computeMetrics(cache.posRows, cache.posHeaders, planned ? planned.points : null);
         } else {
             renderLogInsights(null);
         }
@@ -461,9 +479,9 @@ const Analytics = (() => {
     }
 
     // Switch to an already-cached session
-    function switchSession(sid) {
+    async function switchSession(sid) {
         if (!sessionCache[sid]) return;
-        activateSession(sid);
+        await activateSession(sid);
         const infoEl = document.getElementById('log-file-info');
         if (infoEl) {
             const sg = sessionGroups[sid];
@@ -494,11 +512,41 @@ const Analytics = (() => {
     // 2) time, source, x, y, theta, vx, vy             (7 cols)
     // 3) time, source, x, y, vx, vy, theta, pos, vel   (9 cols)
     // 4) legacy rows without source token               (time, x, y, theta, vx, vy)
-    function parsePositionRow(headers, row) {
+    function parsePositionRow(headers, row, headerIndex = null) {
         if (!row || row.length < 3) return null;
 
-        const t = parseFloat((row[0] || '').trim());
+        const getByHeader = (name, fallback = '') => {
+            if (!headerIndex || !Object.prototype.hasOwnProperty.call(headerIndex, name)) return fallback;
+            const idx = headerIndex[name];
+            return (row[idx] || '').trim();
+        };
+
+        const t = parseFloat(getByHeader('time', (row[0] || '').trim()) || getByHeader('timestamp', ''));
         if (!isFiniteNumber(t)) return null;
+
+        // Prefer explicit header mapping for newer logs: time,source,x,y,theta,vx,vy
+        if (headerIndex && Object.prototype.hasOwnProperty.call(headerIndex, 'x') && Object.prototype.hasOwnProperty.call(headerIndex, 'y')) {
+            const sourceHeader = getByHeader('source', '').toLowerCase();
+            const source = sourceHeader || 'unknown';
+            const x = parseFloat(getByHeader('x', ''));
+            const y = parseFloat(getByHeader('y', ''));
+            const theta = parseFloat(getByHeader('theta', ''));
+            const vx = parseFloat(getByHeader('vx', getByHeader('vel_x', '')));
+            const vy = parseFloat(getByHeader('vy', getByHeader('vel_y', '')));
+
+            if (isFiniteNumber(x) && isFiniteNumber(y)) {
+                return {
+                    t,
+                    source,
+                    rowCols: row.length,
+                    x,
+                    y,
+                    theta: isFiniteNumber(theta) ? theta : 0,
+                    vx: isFiniteNumber(vx) ? vx : 0,
+                    vy: isFiniteNumber(vy) ? vy : 0,
+                };
+            }
+        }
 
         const col1 = (row[1] || '').trim();
         const hasSourceToken = col1 !== '' && !isFiniteNumber(parseFloat(col1));
@@ -599,12 +647,169 @@ const Analytics = (() => {
         };
     }
 
+    function buildHeaderIndex(headers) {
+        const headerIndex = {};
+        (headers || []).forEach((h, i) => {
+            const key = String(h || '').trim().toLowerCase();
+            if (key && !Object.prototype.hasOwnProperty.call(headerIndex, key)) {
+                headerIndex[key] = i;
+            }
+        });
+        return headerIndex;
+    }
+
+    function getRobotIdFromText(text) {
+        const m = String(text || '').match(/robot[_-]?(\d+)/i);
+        return m ? m[1] : null;
+    }
+
+    function pickTrajectoryFileForSession(sid) {
+        if (!Array.isArray(trajectoryLogFiles) || trajectoryLogFiles.length === 0) return null;
+        const sg = sessionGroups[sid];
+        const posFile = sg && sg.files ? sg.files.position : '';
+        const rid = getRobotIdFromText(posFile || sid);
+        if (rid) {
+            const exact = trajectoryLogFiles.find((f) => new RegExp(`^robot[_-]?${rid}\\.txt$`, 'i').test(f));
+            if (exact) return exact;
+            const loose = trajectoryLogFiles.find((f) => new RegExp(`robot[_-]?${rid}`, 'i').test(f));
+            if (loose) return loose;
+        }
+        return trajectoryLogFiles[0];
+    }
+
+    function parseTrajectoryText(text) {
+        const points = [];
+        const lines = String(text || '').split(/\r?\n/);
+        lines.forEach((line, idx) => {
+            const s = line.trim();
+            if (!s || s.startsWith('#')) return;
+            const cols = s.split(',').map((v) => v.trim());
+            if (cols.length < 2) return;
+            const x = parseFloat(cols[0]);
+            const y = parseFloat(cols[1]);
+            const theta = parseFloat(cols[2]);
+            const t = parseFloat(cols[3]);
+            if (!isFiniteNumber(x) || !isFiniteNumber(y)) return;
+            points.push({
+                x,
+                y,
+                theta: isFiniteNumber(theta) ? theta : 0,
+                t: isFiniteNumber(t) ? t : idx,
+            });
+        });
+        return points;
+    }
+
+    async function getPlannedTrajectoryForSession(sid) {
+        const file = pickTrajectoryFileForSession(sid);
+        if (!file) return null;
+        if (trajectoryCache[file]) return trajectoryCache[file];
+        try {
+            const resp = await fetch(`/api/trajectory-logs/${encodeURIComponent(file)}`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const text = await resp.text();
+            const points = parseTrajectoryText(text);
+            if (!points || points.length < 2) return null;
+            trajectoryCache[file] = { file, points };
+            return trajectoryCache[file];
+        } catch (e) {
+            console.warn(`Failed to load trajectory log ${file}:`, e);
+            return null;
+        }
+    }
+
+    function polylineLength(points) {
+        if (!Array.isArray(points) || points.length < 2) return 0;
+        let sum = 0;
+        for (let i = 1; i < points.length; i++) {
+            sum += Math.hypot((points[i].x || 0) - (points[i - 1].x || 0), (points[i].y || 0) - (points[i - 1].y || 0));
+        }
+        return sum;
+    }
+
+    function samplePoints(points, maxSamples = 220) {
+        if (!Array.isArray(points) || points.length <= maxSamples) return points || [];
+        const step = Math.max(1, Math.ceil(points.length / maxSamples));
+        const sampled = [];
+        for (let i = 0; i < points.length; i += step) sampled.push(points[i]);
+        if (sampled[sampled.length - 1] !== points[points.length - 1]) sampled.push(points[points.length - 1]);
+        return sampled;
+    }
+
+    function nearestDistance(pt, points) {
+        if (!pt || !Array.isArray(points) || points.length === 0) return Infinity;
+        let minD = Infinity;
+        for (let i = 0; i < points.length; i++) {
+            const p = points[i];
+            const d = Math.hypot((pt.x || 0) - (p.x || 0), (pt.y || 0) - (p.y || 0));
+            if (d < minD) minD = d;
+        }
+        return minD;
+    }
+
+    // Planned-vs-actual efficiency. We align start points and use a tolerant coverage score,
+    // which is more stable than straight-line/total-distance on stop-and-go trajectories.
+    function computePlannedPathEfficiency(actualPoints, plannedPoints) {
+        if (!Array.isArray(actualPoints) || !Array.isArray(plannedPoints)) return null;
+        if (actualPoints.length < 2 || plannedPoints.length < 2) return null;
+
+        const ap = samplePoints(actualPoints);
+        const pp = samplePoints(plannedPoints);
+        if (ap.length < 2 || pp.length < 2) return null;
+
+        const dx0 = (pp[0].x || 0) - (ap[0].x || 0);
+        const dy0 = (pp[0].y || 0) - (ap[0].y || 0);
+        const alignedActual = ap.map((p) => ({ x: (p.x || 0) + dx0, y: (p.y || 0) + dy0 }));
+
+        const plannedLen = polylineLength(pp);
+        const actualLen = polylineLength(alignedActual);
+        if (plannedLen <= 1e-9) return null;
+
+        const nominalStep = plannedLen / Math.max(1, pp.length - 1);
+        const tol = Math.max(0.06, Math.min(0.2, nominalStep * 2.0));
+
+        let covered = 0;
+        let sqErr = 0;
+        pp.forEach((p) => {
+            const d = nearestDistance(p, alignedActual);
+            if (d <= tol) covered += 1;
+            sqErr += d * d;
+        });
+
+        let backCovered = 0;
+        alignedActual.forEach((p) => {
+            const d = nearestDistance(p, pp);
+            if (d <= tol) backCovered += 1;
+        });
+
+        const coveragePlanned = covered / pp.length;
+        const coverageActual = alignedActual.length > 0 ? (backCovered / alignedActual.length) : 0;
+        const coverage = 0.6 * coveragePlanned + 0.4 * coverageActual;
+        const rmse = Math.sqrt(sqErr / pp.length);
+        const accuracyScore = Math.exp(-rmse / (tol * 1.15));
+        const extraDist = Math.max(0, actualLen - plannedLen);
+        const lengthScore = plannedLen / (plannedLen + 0.55 * extraDist);
+        const endErr = Math.hypot(
+            (alignedActual[alignedActual.length - 1].x || 0) - (pp[pp.length - 1].x || 0),
+            (alignedActual[alignedActual.length - 1].y || 0) - (pp[pp.length - 1].y || 0)
+        );
+        const completionScore = Math.exp(-endErr / (tol * 1.2));
+
+        const planningRatio = plannedLen > 1e-9 ? Math.min(1, actualLen / plannedLen) : 0;
+        const progressionScore = Math.max(0, planningRatio);
+
+        const score = (0.40 * coverage) + (0.28 * accuracyScore) + (0.16 * lengthScore) + (0.08 * completionScore) + (0.08 * progressionScore);
+        // Avoid displaying hard 100.0 from tolerant matching; reserve perfect score for exact metrics.
+        return Math.max(0, Math.min(99.6, score * 100));
+    }
+
     function parsePositionRows(headers, rows, opts = {}) {
         const onlyEkf = !!opts.onlyEkf;
         const pts = [];
+        const headerIndex = buildHeaderIndex(headers);
 
         (rows || []).forEach(r => {
-            const p = parsePositionRow(headers, r);
+            const p = parsePositionRow(headers, r, headerIndex);
             if (!p) return;
             if (onlyEkf && !isEKFSource(p.source)) return;
             pts.push(p);
@@ -684,6 +889,7 @@ const Analytics = (() => {
     function analyzePositionRows(headers, rows) {
         const sourceCounts = {};
         const schemaCounts = {};
+        const headerIndex = buildHeaderIndex(headers);
         let totalRows = 0;
         let parsedRows = 0;
         let ekfRows = 0;
@@ -696,7 +902,7 @@ const Analytics = (() => {
             const cols = Array.isArray(r) ? r.length : 0;
             schemaCounts[cols] = (schemaCounts[cols] || 0) + 1;
 
-            const p = parsePositionRow(headers, r);
+            const p = parsePositionRow(headers, r, headerIndex);
             if (!p) return;
             parsedRows += 1;
 
@@ -882,6 +1088,12 @@ const Analytics = (() => {
             const last = smoothed[smoothed.length - 1];
             const d = Math.hypot(last.x - first.x, last.y - first.y);
             const dt = Math.max(0, last.t - first.t);
+            let rawDist = 0;
+            for (let i = 1; i < smoothed.length; i++) {
+                rawDist += Math.hypot(smoothed[i].x - smoothed[i - 1].x, smoothed[i].y - smoothed[i - 1].y);
+            }
+            const denom = Math.max(d, rawDist);
+            const fallbackEfficiency = denom > 1e-9 ? Math.max(0, Math.min(99.0, (d / denom) * 100)) : 0;
             const fallbackSpeeds = smoothed
                 .map((p) => Number.isFinite(p.vx) && Number.isFinite(p.vy) ? Math.hypot(p.vx, p.vy) : NaN)
                 .filter((v) => Number.isFinite(v));
@@ -892,7 +1104,7 @@ const Analytics = (() => {
                 avgSpeed: dt > 0 ? d / dt : 0,
                 maxSpeed: fallbackMax,
                 duration: dt,
-                efficiency: d > 0 ? 100 : 0,
+                efficiency: fallbackEfficiency,
                 series: [first, last],
             };
         }
@@ -1217,7 +1429,7 @@ const Analytics = (() => {
     // ============================================================
     // Performance Metrics
     // ============================================================
-    function computeMetrics(rows, headers) {
+    function computeMetrics(rows, headers, plannedPoints = null) {
         const rawPts = parsePositionRows(headers, rows, { onlyEkf: true });
         const pts = trimLeadingOriginRows(rawPts);
         const speedProfile = getConfiguredSpeedProfile();
@@ -1249,6 +1461,11 @@ const Analytics = (() => {
             efficiency: stats.efficiency.toFixed(1),
             points: stats.series.length
         };
+
+        const plannedEfficiency = computePlannedPathEfficiency(stats.series, plannedPoints);
+        if (Number.isFinite(plannedEfficiency)) {
+            metrics.efficiency = plannedEfficiency.toFixed(1);
+        }
 
         // Update UI
         document.getElementById('metric-distance').textContent = metrics.totalDist;
@@ -1342,14 +1559,15 @@ const Analytics = (() => {
         if (compData.length === 0) return;
 
         const color = COMP_COLORS[compSessions.length % COMP_COLORS.length];
-        const metrics = computeSessionMetrics(compData);
+        const planned = await getPlannedTrajectoryForSession(sid);
+        const metrics = computeSessionMetrics(compData, planned ? planned.points : null);
         const sg = sessionGroups[sid];
         compSessions.push({ sid, filename: (sg && sg.files.position) || sid, color, data: compData, metrics });
         renderComparisonUI();
         drawReplayFrame();
     }
 
-    function computeSessionMetrics(data) {
+    function computeSessionMetrics(data, plannedPoints = null) {
         const speedProfile = getConfiguredSpeedProfile();
         const stats = computeRobustPathStats(data, {
             smoothWindow: 5,
@@ -1369,11 +1587,12 @@ const Analytics = (() => {
                 points: data.length,
             };
         }
+        const plannedEfficiency = computePlannedPathEfficiency(stats.series, plannedPoints);
         return {
             totalDist: stats.totalDist.toFixed(3),
             avgSpeed: stats.avgSpeed.toFixed(4),
             duration: stats.duration.toFixed(1),
-            efficiency: stats.efficiency.toFixed(1),
+            efficiency: Number.isFinite(plannedEfficiency) ? plannedEfficiency.toFixed(1) : stats.efficiency.toFixed(1),
             points: stats.series.length
         };
     }
