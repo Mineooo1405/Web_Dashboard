@@ -395,8 +395,10 @@ const Analytics = (() => {
             cache.posRows = posData.rows;
             cache.posAnalysis = analyzePositionRows(posData.headers, posData.rows);
         }
-        if (imuData) { cache.imuHeaders = imuData.headers;
-            cache.imuRows = imuData.rows; }
+        if (imuData) {
+            cache.imuHeaders = imuData.headers;
+            cache.imuRows = imuData.rows;
+        }
         sessionCache[sid] = cache;
 
         await activateSession(sid);
@@ -1007,7 +1009,7 @@ const Analytics = (() => {
                 sy += points[i].y;
                 n += 1;
             }
-            return { ...p, x: sx / n, y: sy / n };
+            return {...p, x: sx / n, y: sy / n };
         });
     }
 
@@ -1475,9 +1477,10 @@ const Analytics = (() => {
         document.getElementById('metric-efficiency').textContent = metrics.efficiency;
         document.getElementById('metric-points').textContent = metrics.points;
 
-        // Also load position data into position chart
+        // Draw charts from trimmed raw EKF points so visualization matches logged data.
+        // Keep robust filtered stats only for metric computation.
         clearPositionChart();
-        const chartPts = stats.series;
+        const chartPts = pts;
         const step = Math.max(1, Math.floor(chartPts.length / 500));
         for (let i = 0; i < chartPts.length; i += step) {
             const p = chartPts[i];
@@ -1541,8 +1544,10 @@ const Analytics = (() => {
             const cache = { sid, posHeaders: posData.headers, posRows: posData.rows };
             if (sg.files.imu) {
                 const imuData = await fetchCSV(sg.files.imu);
-                if (imuData) { cache.imuHeaders = imuData.headers;
-                    cache.imuRows = imuData.rows; }
+                if (imuData) {
+                    cache.imuHeaders = imuData.headers;
+                    cache.imuRows = imuData.rows;
+                }
             }
             sessionCache[sid] = cache;
         }
